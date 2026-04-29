@@ -1,0 +1,55 @@
+import { useState, useEffect } from 'react';
+import Sidebar from './components/Sidebar';
+import MainContent from './components/MainContent';
+import Toast from './components/Toast';
+import NotificationBell from './components/NotificationBell';
+import { subscribeNotifications, type AppNotification } from './notifications';
+import { startStaleIssueScheduler } from './scheduler';
+import { getToken } from './github';
+import { fetchMyLogin } from './github';
+import './App.css';
+
+function App() {
+  const [activeItem, setActiveItem] = useState('dashboard');
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [ghLogin, setGhLogin] = useState('');
+
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!getToken()) return;
+    (async () => {
+      try {
+        const login = await fetchMyLogin();
+        setGhLogin(login);
+      } catch {
+        // token invalid
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!ghLogin) return;
+    const unsub = subscribeNotifications(ghLogin, setNotifications);
+    return unsub;
+  }, [ghLogin]);
+
+  useEffect(() => {
+    const timer = startStaleIssueScheduler();
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="app">
+      <Sidebar activeItem={activeItem} onSelect={setActiveItem} />
+      <MainContent activeItem={activeItem} onNavigate={setActiveItem} notifications={notifications} />
+      <Toast notifications={notifications} />
+    </div>
+  );
+}
+
+export default App;
