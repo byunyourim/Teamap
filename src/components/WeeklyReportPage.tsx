@@ -4,6 +4,7 @@ import { fetchAllIssues, fetchAllPRs, fetchOrgMembers, fetchMyLogin, fetchUserNa
 import { createStaleIssueNotifications } from '../notifications';
 import { cn } from '@/lib/utils';
 import MultiSelect from './MultiSelect';
+import { getAssignedRepos } from '../store';
 
 function getWeekRange(offset: number) {
   const now = new Date();
@@ -50,14 +51,14 @@ function DiffBadge({ current, previous }: { current: number; previous: number })
   );
 }
 
-export default function WeeklyReportPage({ bell }: { bell?: React.ReactNode }) {
+export default function WeeklyReportPage({ bell, back }: { bell?: React.ReactNode; back?: React.ReactNode }) {
   const [issues, setIssues] = useState<GitHubIssue[]>([]);
   const [prs, setPrs] = useState<PullRequest[]>([]);
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [nameMap, setNameMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [repoFilter, setRepoFilter] = useState<string[]>([]);
+  const [repoFilter, setRepoFilter] = useState<string[]>(getAssignedRepos());
   const [myLogin, setMyLogin] = useState('');
   const [staleSent, setStaleSent] = useState(false);
   const [staleSending, setStaleSending] = useState(false);
@@ -172,7 +173,7 @@ export default function WeeklyReportPage({ bell }: { bell?: React.ReactNode }) {
   if (loading) {
     return (
       <main className="main-content">
-        <div className="main-header"><span>주간 리포트</span>{bell}</div>
+        <div className="main-header"><span style={{ display: 'inline-flex', alignItems: 'center' }}>{back}주간 리포트</span>{bell}</div>
         <div className="main-body"><Loader2 size={20} className="spinner" /></div>
       </main>
     );
@@ -181,7 +182,7 @@ export default function WeeklyReportPage({ bell }: { bell?: React.ReactNode }) {
   return (
     <main className="main-content">
       <div className="main-header">
-        <span>주간 리포트</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>{back}주간 리포트</span>
         <div className="header-actions">
           <button className="header-icon-btn" onClick={load} title="새로고침">
             <RefreshCw size={14} />

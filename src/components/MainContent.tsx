@@ -5,46 +5,69 @@ import DashboardPage from './DashboardPage';
 import CodeReviewPage from './CodeReviewPage';
 import WeeklyReportPage from './WeeklyReportPage';
 import SettingsAccountPage from './SettingsAccountPage';
+import SettingsAppearancePage from './SettingsAppearancePage';
+import ServiceMgmtPage from './ServiceMgmtPage';
+import ErrorLogPage from './ErrorLogPage';
+import OnchainMonitorPage from './OnchainMonitorPage';
+import IncidentsPage from './IncidentsPage';
+import DeploymentsPage from './DeploymentsPage';
 import NotificationBell from './NotificationBell';
+import BackButton from './BackButton';
 import { type AppNotification } from '../notifications';
 
 const placeholders: Record<string, { title: string; description: string }> = {
-  'error-logs': { title: '에러 로그', description: '에러 로그를 분석하고 조회합니다.' },
-  'service-mgmt': { title: '서비스 관리', description: '서비스 재기동 등 운영 작업을 수행합니다.' },
-  'bug-tracking': { title: '버그 트래킹', description: '버그 지점을 파악하고 추적합니다.' },
   'settings-notifications': { title: '알림', description: '알림 설정을 관리합니다.' },
-  'settings-appearance': { title: '테마', description: '테마 및 외관을 설정합니다.' },
 };
 
 interface Props {
   activeItem: string;
   onNavigate: (id: string) => void;
+  onBack?: () => void;
   notifications: AppNotification[];
 }
 
-export default function MainContent({ activeItem, onNavigate, notifications }: Props) {
+export default function MainContent({ activeItem, onNavigate, onBack, notifications }: Props) {
   const bell = <NotificationBell notifications={notifications} />;
+  const back = onBack ? <BackButton onClick={onBack} /> : null;
 
   if (activeItem === 'dashboard') {
     return <DashboardPage onNavigate={onNavigate} bell={bell} notifications={notifications} />;
   }
   if (activeItem === 'calendar') {
-    return <CalendarPage bell={bell} />;
+    return <CalendarPage bell={bell} back={back} />;
   }
   if (activeItem === 'settings-account') {
-    return <SettingsAccountPage bell={bell} />;
+    return <SettingsAccountPage bell={bell} back={back} />;
   }
   if (activeItem === 'tasks') {
-    return <TasksPage bell={bell} />;
+    return <TasksPage bell={bell} back={back} />;
   }
   if (activeItem === 'team-status') {
     return <TeamStatusPage bell={bell} />;
   }
   if (activeItem === 'code-review') {
-    return <CodeReviewPage bell={bell} />;
+    return <CodeReviewPage bell={bell} back={back} />;
   }
   if (activeItem === 'weekly-report') {
-    return <WeeklyReportPage bell={bell} />;
+    return <WeeklyReportPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'service-mgmt') {
+    return <ServiceMgmtPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'error-logs') {
+    return <ErrorLogPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'onchain') {
+    return <OnchainMonitorPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'incidents') {
+    return <IncidentsPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'deployments') {
+    return <DeploymentsPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'settings-appearance') {
+    return <SettingsAppearancePage bell={bell} back={back} />;
   }
 
   const page = placeholders[activeItem];
@@ -53,7 +76,10 @@ export default function MainContent({ activeItem, onNavigate, notifications }: P
   return (
     <main className="main-content">
       <div className="main-header">
-        <span>{page.title}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          {back}
+          {page.title}
+        </span>
         {bell}
       </div>
       <div className="main-body">{page.description}</div>

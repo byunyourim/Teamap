@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2, RefreshCw, GitPullRequest, CheckCircle2, XCircle, Clock, FileEdit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { fetchAllPRs, fetchPRReviews, fetchMyLogin, fetchUserNames, getToken, type PullRequest } from '../github';
+import { getAssignedRepos } from '../store';
 import { cn } from '@/lib/utils';
 import MultiSelect from './MultiSelect';
 import PRDetailPage from './PRDetailPage';
@@ -18,14 +19,14 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-export default function CodeReviewPage({ bell }: { bell?: React.ReactNode }) {
+export default function CodeReviewPage({ bell, back }: { bell?: React.ReactNode; back?: React.ReactNode }) {
   const [prs, setPrs] = useState<PullRequest[]>([]);
   const [nameMap, setNameMap] = useState<Map<string, string>>(new Map());
   const [ghLogin, setGhLogin] = useState('');
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState<ViewTab>('my-pr');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
-  const [repoFilter, setRepoFilter] = useState<string[]>([]);
+  const [repoFilter, setRepoFilter] = useState<string[]>(getAssignedRepos());
   const [period, setPeriod] = useState('14');
   const [page, setPage] = useState(0);
   const [selectedPR, setSelectedPR] = useState<{ repo: string; number: number } | null>(null);
@@ -136,7 +137,7 @@ export default function CodeReviewPage({ bell }: { bell?: React.ReactNode }) {
   if (loading) {
     return (
       <main className="main-content">
-        <div className="main-header"><span>PR</span>{bell}</div>
+        <div className="main-header"><span style={{ display: 'inline-flex', alignItems: 'center' }}>{back}PR</span>{bell}</div>
         <div className="main-body"><Loader2 size={20} className="spinner" /></div>
       </main>
     );
@@ -145,7 +146,7 @@ export default function CodeReviewPage({ bell }: { bell?: React.ReactNode }) {
   return (
     <main className="main-content">
       <div className="main-header">
-        <span>PR</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>{back}PR</span>
         <div className="header-actions">
           <button className="header-icon-btn" onClick={load} title="새로고침">
             <RefreshCw size={14} />

@@ -1,0 +1,246 @@
+import type { ParsedError } from './slack';
+import type { CodeSearchHit } from './github';
+import { searchCode } from './github';
+
+const ANTHROPIC_KEY = 'anthropic_api_key';
+const GEMINI_KEY = 'gemini_api_key';
+const PROVIDER_KEY = 'teamap_ai_provider';
+const ANALYSIS_CACHE = 'teamap_ai_analysis_cache';
+
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+export type Provider = 'anthropic' | 'gemini';
+
+export function getProvider(): Provider {
+  const v = localStorage.getItem(PROVIDER_KEY);
+  return v === 'anthropic' || v === 'gemini' ? v : 'gemini';
+}
+
+export function setProvider(p: Provider) {
+  localStorage.setItem(PROVIDER_KEY, p);
+}
+
+export function getAnthropicKey(): string {
+  return localStorage.getItem(ANTHROPIC_KEY) ?? '';
+}
+
+export function setAnthropicKey(v: string) {
+  localStorage.setItem(ANTHROPIC_KEY, v);
+}
+
+export function getGeminiKey(): string {
+  return localStorage.getItem(GEMINI_KEY) ?? '';
+}
+
+export function setGeminiKey(v: string) {
+  localStorage.setItem(GEMINI_KEY, v);
+}
+
+const SYSTEM_PROMPT = `당신은 블록체인 서비스 시니어 백엔드 엔지니어입니다.
+주어진 에러 로그와 GitHub 코드 검색 결과를 보고, **에러가 던져진 정확한 위치**를 찾아내는 게 임무입니다.
+
+응답 형식 (마크다운):
+
+## 에러 지점
+- **파일**: \`path/to/file.ts\` (라인 N)
+- **GitHub**: <전달받은 코드 검색 결과의 url>
+- **함수**: \`functionName()\` (있으면)
+
+## 추정 원인
+1-3문장. 어떤 조건에서 이 에러가 던져지는지 코드 기반으로 설명.
+
+## 빠른 점검
+- [ ] 즉시 확인할 항목 1
+- [ ] 즉시 확인할 항목 2
+- [ ] (필요 시) 3-4
+
+규칙:
+- 코드 검색 결과 중 가장 가능성 높은 한 곳만 찍어줄 것 (확신 없으면 "후보:" 형태로 2개)
+- 검색 결과에 일치하는 게 없으면 "코드에서 정확한 위치 미발견"이라고 명시
+- 한국어, 5-10줄 이내, 간결하게`;
+
+export interface AnalysisResult {
+  text: string;
+  cachedAt: number;
+  model: string;
+  provider: Provider;
+  hits: CodeSearchHit[];
+}
+
+function getCache(): Record<string, AnalysisResult> {
+  try {
+    const v = JSON.parse(localStorage.getItem(ANALYSIS_CACHE) ?? '{}');
+    return typeof v === 'object' && v ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+function setCache(cache: Record<string, AnalysisResult>) {
+  const entries = Object.entries(cache);
+  if (entries.length > 100) {
+    entries.sort((a, b) => b[1].cachedAt - a[1].cachedAt);
+    cache = Object.fromEntries(entries.slice(0, 100));
+  }
+  localStorage.setItem(ANALYSIS_CACHE, JSON.stringify(cache));
+}
+
+export function getCachedAnalysis(ts: string): AnalysisResult | undefined {
+  return getCache()[ts];
+}
+
+export function clearCachedAnalysis(ts: string) {
+  const c = getCache();
+  delete c[ts];
+  setCache(c);
+}
+
+/** 에러에서 검색용 키워드 후보를 추출
+ *  우선순위: summary > 첫번째 라인의 텍스트
+ */
+function buildSearchQueries(err: ParsedError): string[] {
+  const out: string[] = [];
+  if (err.summary && err.summary.length >= 6) {
+    // 너무 일반적인 단어 제거하고 핵심 어구만
+    const cleaned = err.summary.replace(/[^a-zA-Z0-9가-힣 _-]/g, ' ').trim();
+    if (cleaned.length >= 6) out.push(cleaned);
+  }
+  if (err.fields.err && err.fields.err.length >= 6) {
+    out.push(err.fields.err.replace(/[^a-zA-Z0-9 _-]/g, ' ').trim());
+  }
+  return out.filter((q, i, a) => a.indexOf(q) === i);
+}
+
+export async function searchErrorLocation(err: ParsedError): Promise<CodeSearchHit[]> {
+  const queries = buildSearchQueries(err);
+  const seen = new Set<string>();
+  const all: CodeSearchHit[] = [];
+
+  for (const q of queries) {
+    try {
+      const hits = await searchCode(q, 10);
+      for (const h of hits) {
+        const key = `${h.repo}/${h.path}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(h);
+        }
+      }
+    } catch {
+      // 한 쿼리 실패해도 다음 쿼리 시도
+    }
+  }
+  return all.slice(0, 10);
+}
+
+export async function analyzeError(err: ParsedError, force = false): Promise<AnalysisResult> {
+  if (!force) {
+    const cached = getCachedAnalysis(err.ts);
+    if (cached) return cached;
+  }
+
+  if (!window.teamap) throw new Error('데스크톱 앱에서만 동작합니다.');
+
+  const provider = getProvider();
+  const apiKey = provider === 'anthropic' ? getAnthropicKey() : getGeminiKey();
+  if (!apiKey) {
+    throw new Error(`${provider === 'anthropic' ? 'Anthropic' : 'Gemini'} API 키를 설정 → 계정에서 등록하세요.`);
+  }
+
+  // 1. GitHub 코드 검색
+  const hits = await searchErrorLocation(err);
+
+  // 2. 프롬프트 구성
+  const userMessage = formatPrompt(err, hits);
+
+  // 3. AI 호출
+  const r = provider === 'anthropic'
+    ? await window.teamap.ai.analyze({
+        apiKey,
+        model: ANTHROPIC_MODEL,
+        system: SYSTEM_PROMPT,
+        user: userMessage,
+      })
+    : await window.teamap.ai.gemini({
+        apiKey,
+        model: GEMINI_MODEL,
+        system: SYSTEM_PROMPT,
+        user: userMessage,
+      });
+
+  const result: AnalysisResult = {
+    text: r.text,
+    cachedAt: Date.now(),
+    model: provider === 'anthropic' ? ANTHROPIC_MODEL : GEMINI_MODEL,
+    provider,
+    hits,
+  };
+
+  const cache = getCache();
+  cache[err.ts] = result;
+  setCache(cache);
+
+  return result;
+}
+
+function formatPrompt(err: ParsedError, hits: CodeSearchHit[]): string {
+  const fieldsText = Object.entries(err.fields)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+
+  const hitsText = hits.length === 0
+    ? '(검색 결과 없음)'
+    : hits.map((h, i) => (
+        `### 후보 ${i + 1}\n` +
+        `파일: ${h.repo}/${h.path}\n` +
+        `URL: ${h.url}\n` +
+        `매치 컨텍스트:\n${h.fragments.map((f) => '```\n' + f + '\n```').join('\n')}`
+      )).join('\n\n');
+
+  return `# 에러 로그
+서비스: ${err.service || '(알 수 없음)'}
+컴포넌트: ${err.component || '(알 수 없음)'}
+요약: ${err.summary}
+${err.level ? `심각도: ${err.level}` : ''}
+
+상세 필드:
+${fieldsText}
+
+원본 메시지:
+\`\`\`
+${err.raw}
+\`\`\`
+
+# GitHub 코드 검색 결과
+${hitsText}
+
+위 코드 검색 결과 중 어디서 이 에러가 던져졌는지 찾아주세요.`;
+}
+
+export async function testApiKey(provider: Provider = getProvider()): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!window.teamap) return { ok: false, error: '데스크톱 앱에서만 동작합니다.' };
+  const apiKey = provider === 'anthropic' ? getAnthropicKey() : getGeminiKey();
+  if (!apiKey) return { ok: false, error: 'API 키가 비어있습니다.' };
+
+  try {
+    if (provider === 'anthropic') {
+      await window.teamap.ai.analyze({
+        apiKey,
+        model: ANTHROPIC_MODEL,
+        system: '간결하게 답하세요.',
+        user: '"OK"라고만 한 단어로 답하세요.',
+      });
+    } else {
+      await window.teamap.ai.gemini({
+        apiKey,
+        model: GEMINI_MODEL,
+        system: '간결하게 답하세요.',
+        user: '"OK"라고만 한 단어로 답하세요.',
+      });
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '연결 실패' };
+  }
+}

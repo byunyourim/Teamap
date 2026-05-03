@@ -43,7 +43,7 @@ function toDateStr(year: number, month: number, date: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
 }
 
-export default function CalendarPage({ bell }: { bell?: React.ReactNode }) {
+export default function CalendarPage({ bell, back }: { bell?: React.ReactNode; back?: React.ReactNode }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -135,7 +135,7 @@ export default function CalendarPage({ bell }: { bell?: React.ReactNode }) {
   return (
     <main className="main-content">
       <div className="main-header">
-        <span>캘린더</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>{back}캘린더</span>
         {bell}
       </div>
 

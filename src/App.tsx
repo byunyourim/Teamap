@@ -11,8 +11,28 @@ import './App.css';
 
 function App() {
   const [activeItem, setActiveItem] = useState('dashboard');
+  const [history, setHistory] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [ghLogin, setGhLogin] = useState('');
+
+  const navigate = (id: string) => {
+    setHistory((prev) => [...prev, activeItem]);
+    setActiveItem(id);
+  };
+
+  const select = (id: string) => {
+    setHistory([]);
+    setActiveItem(id);
+  };
+
+  const goBack = () => {
+    setHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setActiveItem(last);
+      return prev.slice(0, -1);
+    });
+  };
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -45,8 +65,13 @@ function App() {
 
   return (
     <div className="app">
-      <Sidebar activeItem={activeItem} onSelect={setActiveItem} />
-      <MainContent activeItem={activeItem} onNavigate={setActiveItem} notifications={notifications} />
+      <Sidebar activeItem={activeItem} onSelect={select} />
+      <MainContent
+        activeItem={activeItem}
+        onNavigate={navigate}
+        onBack={history.length > 0 ? goBack : undefined}
+        notifications={notifications}
+      />
       <Toast notifications={notifications} />
     </div>
   );

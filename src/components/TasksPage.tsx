@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Search, Settings, Loader2, RefreshCw, Plus, X } from 'lucide-react';
 import { createIssue, fetchAllIssues, fetchMyLogin, fetchOrgMembers, fetchUserNames, getToken, setToken, type GitHubIssue } from '../github';
+import { getAssignedRepos } from '../store';
 import IssueDetailPage from './IssueDetailPage';
+import MultiSelect from './MultiSelect';
 
 type StateFilter = 'all' | 'open' | 'closed';
 
 interface TasksPageProps {
   bell?: React.ReactNode;
+  back?: React.ReactNode;
 }
 
-export default function TasksPage({ bell }: TasksPageProps) {
+export default function TasksPage({ bell, back }: TasksPageProps) {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [myOnly, setMyOnly] = useState(false);
@@ -18,7 +21,7 @@ export default function TasksPage({ bell }: TasksPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [showTokenInput, setShowTokenInput] = useState(!getToken());
   const [tokenDraft, setTokenDraft] = useState('');
-  const [repoFilter, setRepoFilter] = useState('all');
+  const [repoFilter, setRepoFilter] = useState<string[]>(getAssignedRepos());
   const [ghLogin, setGhLogin] = useState('');
   const [nameMap, setNameMap] = useState<Map<string, string>>(new Map());
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
@@ -64,7 +67,7 @@ export default function TasksPage({ bell }: TasksPageProps) {
   const filtered = issues.filter((issue) => {
     if (myOnly && ghLogin && issue.assignee !== ghLogin) return false;
     if (stateFilter !== 'all' && issue.state !== stateFilter) return false;
-    if (repoFilter !== 'all' && issue.repo !== repoFilter) return false;
+    if (repoFilter.length > 0 && !repoFilter.includes(issue.repo)) return false;
     if (search && !issue.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -125,7 +128,7 @@ export default function TasksPage({ bell }: TasksPageProps) {
   return (
     <main className="main-content">
       <div className="main-header">
-        <span>업무</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>{back}업무</span>
         <div className="header-actions">
           <button className="header-icon-btn" onClick={() => { setShowNewIssue(true); if (repos.length > 0 && !newRepo) setNewRepo(repos[0]); }} title="새 이슈">
             <Plus size={14} />
@@ -151,16 +154,12 @@ export default function TasksPage({ bell }: TasksPageProps) {
             <option value="open">열림 ({counts.open})</option>
             <option value="closed">닫힘 ({counts.closed})</option>
           </select>
-          <select
-            className="tasks-repo-select"
-            value={repoFilter}
-            onChange={(e) => setRepoFilter(e.target.value)}
-          >
-            <option value="all">전체 레포</option>
-            {repos.map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
+          <MultiSelect
+            options={repos}
+            selected={repoFilter}
+            onChange={setRepoFilter}
+            placeholder="전체 레포"
+          />
           <div className="tasks-search">
             <Search size={14} className="tasks-search-icon" />
             <input

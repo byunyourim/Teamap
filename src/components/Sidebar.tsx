@@ -8,7 +8,6 @@ import {
   Users,
   AlertCircle,
   RefreshCw,
-  Bug,
   KeyRound,
   Bell,
   Palette,
@@ -16,6 +15,9 @@ import {
   LayoutDashboard,
   GitPullRequest,
   BarChart3,
+  Wallet,
+  Siren,
+  Rocket,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -56,8 +58,10 @@ const sections: Section[] = [
     icon: Settings,
     items: [
       { id: 'error-logs', label: '에러 로그', icon: AlertCircle },
+      { id: 'incidents', label: '인시던트', icon: Siren },
+      { id: 'deployments', label: '배포 트래킹', icon: Rocket },
+      { id: 'onchain', label: '온체인 모니터링', icon: Wallet },
       { id: 'service-mgmt', label: '서비스 관리', icon: RefreshCw },
-      { id: 'bug-tracking', label: '버그 트래킹', icon: Bug },
     ],
   },
   {

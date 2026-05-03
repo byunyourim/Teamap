@@ -1,97 +1,91 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Teamap
 
-# Getting Started
+Electron + Vite + React (TypeScript) 기반 데스크톱 애플리케이션.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## 기술 스택
 
-## Step 1: Start Metro
+- **Electron 35** — 데스크톱 셸
+- **Vite 6** — 개발 서버 / 번들러
+- **React 19** + **TypeScript 5**
+- **Tailwind CSS 4**
+- **Firebase 12**
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## 사전 요구사항
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+- Node.js 18 이상 (권장: LTS)
+- npm
 
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
-```
-
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
+## 설치
 
 ```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+npm install
 ```
 
-### iOS
+## 실행 방법
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+### 개발 모드 (Electron + HMR)
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+Vite 개발 서버와 Electron 앱을 동시에 실행합니다. Vite가 `http://localhost:5173`에서 준비되면 Electron 창이 자동으로 열립니다.
 
 ```sh
-bundle install
+npm run electron:dev
 ```
 
-Then, and every time you update your native dependencies, run:
+### 웹(Vite)만 실행
+
+브라우저에서 UI만 확인하고 싶을 때 사용합니다.
 
 ```sh
-bundle exec pod install
+npm run dev
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+브라우저에서 http://localhost:5173 접속.
+
+### 프로덕션 빌드 후 Electron 실행
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+npm run electron
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+내부적으로 `vite build` 후 `electron .`을 실행합니다.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+### 빌드만
 
-## Step 3: Modify your app
+```sh
+npm run build
+```
 
-Now that you have successfully run the app, let's make changes!
+`tsc -b`로 타입 체크 후 `vite build`로 정적 파일을 생성합니다.
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+## 기타 스크립트
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+| 명령 | 설명 |
+| --- | --- |
+| `npm run lint` | ESLint 실행 |
+| `npm test` | Vitest 실행 |
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+## 프로젝트 구조
 
-## Congratulations! :tada:
+```
+.
+├── electron/          # Electron 메인 프로세스
+│   └── main.js
+├── src/               # React 렌더러
+│   ├── App.tsx
+│   ├── main.tsx
+│   ├── components/
+│   ├── lib/
+│   ├── firebase.ts
+│   ├── github.ts
+│   ├── notifications.ts
+│   ├── scheduler.ts
+│   └── store.ts
+├── index.html
+├── vite.config.ts
+└── tsconfig.json
+```
 
-You've successfully run and modified your React Native App. :partying_face:
+## 트러블슈팅
 
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+- **`Electron 창이 열리지 않음`**: Vite가 `5173` 포트를 점유하지 못한 경우입니다. 다른 프로세스가 포트를 사용하고 있는지 확인하세요.
+- **`@import must precede all other statements` 경고**: `src/App.css`(또는 글로벌 CSS)의 `@import` 구문이 다른 규칙보다 위에 있어야 합니다.
