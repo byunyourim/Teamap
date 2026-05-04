@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
-import { Plus, AlertCircle, Clock, CheckCircle2, X, Send } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, AlertCircle, Clock, CheckCircle2, X, Send, Rocket, Loader2 } from 'lucide-react';
 import {
   getIncidents, upsertIncident, newIncidentId,
   getAssignedServices, getAssignedWallets, getAssignedContracts,
-  getUsername, getDeployments,
+  getUsername, getAssignedRepos,
   type Incident, type IncidentStatus, type IncidentSeverity,
   type IncidentTimelineEntry,
 } from '../store';
+import { getToken, fetchWorkflowRuns, type WorkflowRun } from '../github';
 
 const STATUSES: { value: IncidentStatus; label: string; color: string }[] = [
   { value: 'investigating', label: '조사 중', color: 'var(--danger)' },
@@ -145,17 +146,42 @@ export default function IncidentsPage({ bell, back }: { bell?: React.ReactNode; 
   );
 }
 
+interface RecentDeploy {
+  repo: string;
+  branch: string;
+  sha: string;
+  workflow: string;
+  actor: string;
+  conclusion: string | null;
+  time: number;
+  url: string;
+}
+
 function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: (i: Incident) => void }) {
   const [note, setNote] = useState('');
   const [postmortem, setPostmortem] = useState(incident.postmortem ?? '');
+  const [deploys, setDeploys] = useState<RecentDeploy[]>([]);
+  const [deploysLoading, setDeploysLoading] = useState(false);
   const services = getAssignedServices();
   const wallets = getAssignedWallets();
   const contracts = getAssignedContracts();
 
-  // 인시던트 발생 ±1시간 내 배포 후보
-  const deploys = getDeployments().filter((d) =>
-    Math.abs(d.startedAt - incident.createdAt) < 60 * 60 * 1000
-  );
+  useEffect(() => {
+    if (!getToken()) return;
+    const repos = getAssignedRepos();
+    if (repos.length === 0) return;
+
+    setDeploysLoading(true);
+    Promise.all(repos.map((repo) => fetchWorkflowRuns(repo).then((runs) =>
+      runs.map((r) => ({ repo, branch: r.head_branch, sha: r.head_sha.slice(0, 7), workflow: r.name, actor: r.actor.login, conclusion: r.conclusion, time: new Date(r.created_at).getTime(), url: r.html_url }))
+    ).catch(() => [] as RecentDeploy[]))).then((results) => {
+      const all = results.flat().filter((d) =>
+        Math.abs(d.time - incident.createdAt) < 24 * 60 * 60 * 1000
+      ).sort((a, b) => b.time - a.time);
+      setDeploys(all);
+      setDeploysLoading(false);
+    });
+  }, [incident.id]);
 
   const setStatus = (status: IncidentStatus) => {
     const next: Incident = {
@@ -278,28 +304,51 @@ function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: 
         </div>
       </section>
 
-      {/* 관련 배포 */}
-      {deploys.length > 0 && (
-        <section>
-          <h3 style={sectionTitle}>관련 배포 (±1시간)</h3>
+      {/* 관련 배포 (GitHub Actions) */}
+      <section>
+        <h3 style={sectionTitle}>
+          <Rocket size={13} style={{ marginRight: 6, verticalAlign: -1 }} />
+          관련 배포 (±24시간)
+        </h3>
+        {deploysLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-faint)', padding: '8px 0' }}>
+            <Loader2 size={12} className="spinner" /> GitHub Actions 조회 중...
+          </div>
+        ) : deploys.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '8px 0' }}>
+            {getToken() ? '해당 시간대에 배포 이력이 없습니다.' : 'GitHub 토큰을 설정하면 배포 이력을 자동으로 표시합니다.'}
+          </div>
+        ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {deploys.map((d) => (
-              <div key={d.id} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 12px', fontSize: 12,
-                background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6,
-              }}>
-                <span style={{ fontFamily: 'monospace', color: 'var(--text)' }}>{d.service}</span>
+              <a
+                key={`${d.repo}-${d.sha}-${d.time}`}
+                href={d.url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px', fontSize: 12, textDecoration: 'none',
+                  background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6,
+                }}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  background: d.conclusion === 'success' ? 'var(--success)' : d.conclusion === 'failure' ? 'var(--danger)' : 'var(--warning)',
+                }} />
+                <span style={{ fontFamily: 'monospace', color: 'var(--text)' }}>{d.repo}</span>
                 <span style={{ color: 'var(--text-faint)' }}>·</span>
-                <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{d.version}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)' }}>
-                  {new Date(d.startedAt).toLocaleString('ko-KR', { hour12: false })}
+                <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)', fontSize: 11 }}>{d.sha}</span>
+                <span style={{ color: 'var(--text-faint)' }}>·</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{d.branch}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                  {new Date(d.time).toLocaleString('ko-KR', { hour12: false })}
                 </span>
-              </div>
+              </a>
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* 타임라인 */}
       <section>

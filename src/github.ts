@@ -505,3 +505,24 @@ export async function fetchIssueComments(repo: string, number: number): Promise<
     createdAt: c.created_at,
   }));
 }
+
+export interface WorkflowRun {
+  id: number;
+  name: string;
+  head_branch: string;
+  head_sha: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion: 'success' | 'failure' | 'cancelled' | 'skipped' | null;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  actor: { login: string };
+  pull_requests: { number: number; title?: string }[];
+}
+
+export async function fetchWorkflowRuns(repo: string): Promise<WorkflowRun[]> {
+  const data = await ghFetch<{ workflow_runs: WorkflowRun[] }>(
+    `/repos/${ORG}/${repo}/actions/runs?per_page=10&branch=release`
+  );
+  return data.workflow_runs ?? [];
+}

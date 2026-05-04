@@ -94,7 +94,7 @@ export default function DeploymentsPage({ bell, back }: { bell?: React.ReactNode
               기록된 배포가 없습니다.
             </p>
             <p style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-              우측 상단 + 버튼으로 배포를 기록하세요. (CI/CD 웹훅 자동 연동은 향후 작업)
+              우측 상단 + 버튼으로 배포를 기록하세요.
             </p>
           </div>
         ) : (

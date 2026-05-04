@@ -26,7 +26,8 @@ function createWindow() {
   });
 
   if (isDev) {
-    win.loadURL('http://localhost:5173');
+    const port = process.env.VITE_PORT || '5173';
+    win.loadURL(`http://localhost:${port}`);
     win.webContents.openDevTools();
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
