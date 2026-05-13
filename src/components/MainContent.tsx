@@ -22,11 +22,13 @@ const placeholders: Record<string, { title: string; description: string }> = {
 interface Props {
   activeItem: string;
   onNavigate: (id: string) => void;
+  onNavigateWith: (id: string, params: Record<string, string>) => void;
+  navParams: Record<string, string>;
   onBack?: () => void;
   notifications: AppNotification[];
 }
 
-export default function MainContent({ activeItem, onNavigate, onBack, notifications }: Props) {
+export default function MainContent({ activeItem, onNavigate, onNavigateWith, navParams, onBack, notifications }: Props) {
   const bell = <NotificationBell notifications={notifications} />;
   const back = onBack ? <BackButton onClick={onBack} /> : null;
 
@@ -55,10 +57,10 @@ export default function MainContent({ activeItem, onNavigate, onBack, notificati
     return <ServiceMgmtPage bell={bell} back={back} />;
   }
   if (activeItem === 'error-logs') {
-    return <ErrorLogPage bell={bell} back={back} />;
+    return <ErrorLogPage bell={bell} back={back} onNavigateWith={onNavigateWith} />;
   }
   if (activeItem === 'onchain') {
-    return <OnchainMonitorPage bell={bell} back={back} />;
+    return <OnchainMonitorPage bell={bell} back={back} initialChain={navParams.chain} initialHash={navParams.txHash} />;
   }
   if (activeItem === 'incidents') {
     return <IncidentsPage bell={bell} back={back} />;

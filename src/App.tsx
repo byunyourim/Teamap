@@ -12,6 +12,7 @@ import './App.css';
 function App() {
   const [activeItem, setActiveItem] = useState('dashboard');
   const [history, setHistory] = useState<string[]>([]);
+  const [navParams, setNavParams] = useState<Record<string, string>>({});
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [ghLogin, setGhLogin] = useState('');
 
@@ -20,8 +21,14 @@ function App() {
     setActiveItem(id);
   };
 
+  const navigateWith = (id: string, params: Record<string, string>) => {
+    setNavParams(params);
+    navigate(id);
+  };
+
   const select = (id: string) => {
     setHistory([]);
+    setNavParams({});
     setActiveItem(id);
   };
 
@@ -69,6 +76,8 @@ function App() {
       <MainContent
         activeItem={activeItem}
         onNavigate={navigate}
+        onNavigateWith={navigateWith}
+        navParams={navParams}
         onBack={history.length > 0 ? goBack : undefined}
         notifications={notifications}
       />
