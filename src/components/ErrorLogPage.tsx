@@ -6,14 +6,18 @@ import {
   type ParsedError, type SlackMessage,
 } from '../slack';
 import {
-  analyzeError, getCachedAnalysis, clearCachedAnalysis,
+  analyzeError, analyzeErrorWithChain, getCachedAnalysis, clearCachedAnalysis,
   getAnthropicKey, getGeminiKey, getProvider,
   type AnalysisResult,
 } from '../ai';
 
 const POLL_MS = 30_000;
 
-export default function ErrorLogPage({ bell, back }: { bell?: React.ReactNode; back?: React.ReactNode }) {
+export default function ErrorLogPage({ bell, back, onNavigateWith }: {
+  bell?: React.ReactNode;
+  back?: React.ReactNode;
+  onNavigateWith?: (id: string, params: Record<string, string>) => void;
+}) {
   const [errors, setErrors] = useState<ParsedError[]>([]);
   const [raw, setRaw] = useState<SlackMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -219,6 +223,8 @@ export default function ErrorLogPage({ bell, back }: { bell?: React.ReactNode; b
               raw={raw.find((m) => m.ts === selected.ts)}
               thread={thread}
               threadLoading={threadLoading}
+              allErrors={errors}
+              onNavigateWith={onNavigateWith}
             />
           )}
         </div>
@@ -228,12 +234,14 @@ export default function ErrorLogPage({ bell, back }: { bell?: React.ReactNode; b
 }
 
 function ErrorDetail({
-  err, raw, thread, threadLoading,
+  err, raw, thread, threadLoading, allErrors, onNavigateWith,
 }: {
   err: ParsedError;
   raw?: SlackMessage;
   thread: SlackMessage[];
   threadLoading: boolean;
+  allErrors: ParsedError[];
+  onNavigateWith?: (id: string, params: Record<string, string>) => void;
 }) {
   const txUrl = explorerUrl(err.chainId, err.txHash);
   const [analysis, setAnalysis] = useState<AnalysisResult | undefined>(() => getCachedAnalysis(err.ts));
@@ -252,7 +260,7 @@ function ErrorDetail({
     setAnalyzing(true);
     setAnalyzeError(null);
     try {
-      const r = await analyzeError(err, force);
+      const r = await analyzeErrorWithChain(err, allErrors, force);
       setAnalysis(r);
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : '분석 실패');
@@ -429,6 +437,20 @@ function ErrorDetail({
                     >
                       <ExternalLink size={11} /> Explorer
                     </a>
+                  )}
+                  {onNavigateWith && err.chainId && (
+                    <button
+                      onClick={() => onNavigateWith('onchain', { chain: err.chainId!, txHash: err.txHash! })}
+                      style={{
+                        marginLeft: 8, padding: '2px 8px', fontSize: 11, fontWeight: 500,
+                        borderRadius: 4, cursor: 'pointer',
+                        background: 'rgba(59,130,246,0.1)', color: 'var(--accent)',
+                        border: '1px solid rgba(59,130,246,0.3)',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                      }}
+                    >
+                      <ChevronRight size={10} /> 온체인 조회
+                    </button>
                   )}
                 </td>
               </tr>
