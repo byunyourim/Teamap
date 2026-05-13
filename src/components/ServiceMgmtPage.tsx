@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Play, Square, Settings as SettingsIcon, Plus, Trash2, AlertTriangle, Clock,
+  ChevronUp, ChevronDown, Link,
 } from 'lucide-react';
 import {
   getAssignedServices, setAssignedServices,
   getServiceConfigs, setServiceConfigs,
+  getServiceDepChain, setServiceDepChain,
+  getAssignedRepos,
   appendAudit, getAuditLog,
   getUsername,
   type ServiceConfig,
@@ -64,6 +67,32 @@ export default function ServiceMgmtPage({ bell, back }: { bell?: React.ReactNode
   const [confirmState, setConfirmState] = useState<{ svc: string; action: 'run' | 'stop' } | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>(getAuditLog());
   const [, setTick] = useState(0);
+
+  const [depChain, setDepChainLocal] = useState<string[]>(getServiceDepChain());
+  const repos = getAssignedRepos();
+
+  const persistDepChain = (next: string[]) => {
+    setDepChainLocal(next);
+    setServiceDepChain(next);
+  };
+
+  const addToChain = (repo: string) => {
+    if (!depChain.includes(repo)) {
+      persistDepChain([...depChain, repo]);
+    }
+  };
+
+  const removeFromChain = (idx: number) => {
+    persistDepChain(depChain.filter((_, i) => i !== idx));
+  };
+
+  const moveInChain = (idx: number, dir: -1 | 1) => {
+    const next = [...depChain];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    persistDepChain(next);
+  };
 
   // 1초마다 다시 렌더링 (다음 실행 시각 카운트다운)
   useEffect(() => {
@@ -229,6 +258,119 @@ export default function ServiceMgmtPage({ bell, back }: { bell?: React.ReactNode
             ))}
           </div>
         )}
+
+        {/* 서비스 의존 체인 */}
+        <div style={{
+          marginTop: 28, padding: 16,
+          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10,
+        }}>
+          <h3 style={{
+            fontSize: 13, fontWeight: 600, color: 'var(--text)',
+            marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <Link size={13} /> 서비스 의존 체인
+          </h3>
+          <p style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 12 }}>
+            에러 분석 시 연관 서비스 에러를 자동 수집합니다. 순서 = 호출 방향 (위에서 아래로).
+          </p>
+
+          {/* 체인 시각화 */}
+          {depChain.length > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 12px', marginBottom: 12,
+              background: 'var(--bg-input)', borderRadius: 6,
+              fontSize: 12, fontFamily: 'monospace', color: 'var(--text)',
+              flexWrap: 'wrap',
+            }}>
+              {depChain.map((repo, i) => (
+                <span key={repo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span>{repo.split('/').pop()}</span>
+                  {i < depChain.length - 1 && <span style={{ color: 'var(--text-faint)' }}>→</span>}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* 체인 목록 (편집) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+            {depChain.map((repo, i) => (
+              <div key={repo} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 10px',
+                background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6,
+              }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, color: 'var(--text-faint)',
+                  minWidth: 18, textAlign: 'center',
+                }}>
+                  {i + 1}
+                </span>
+                <span style={{ flex: 1, fontSize: 12, fontFamily: 'monospace', color: 'var(--text)' }}>
+                  {repo}
+                </span>
+                <button
+                  onClick={() => moveInChain(i, -1)}
+                  disabled={i === 0}
+                  style={{
+                    background: 'transparent', border: 'none', cursor: i === 0 ? 'default' : 'pointer',
+                    color: i === 0 ? 'var(--border)' : 'var(--text-faint)', padding: 2,
+                  }}
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  onClick={() => moveInChain(i, 1)}
+                  disabled={i === depChain.length - 1}
+                  style={{
+                    background: 'transparent', border: 'none',
+                    cursor: i === depChain.length - 1 ? 'default' : 'pointer',
+                    color: i === depChain.length - 1 ? 'var(--border)' : 'var(--text-faint)', padding: 2,
+                  }}
+                >
+                  <ChevronDown size={14} />
+                </button>
+                <button
+                  onClick={() => removeFromChain(i)}
+                  style={{
+                    background: 'transparent', border: 'none',
+                    cursor: 'pointer', color: 'var(--text-faint)', padding: 2,
+                  }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* 레포 추가 */}
+          {repos.filter((r) => !depChain.includes(r)).length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {repos.filter((r) => !depChain.includes(r)).map((repo) => (
+                <button
+                  key={repo}
+                  onClick={() => addToChain(repo)}
+                  style={{
+                    fontSize: 11, padding: '4px 10px', borderRadius: 12,
+                    background: 'var(--bg-card)', color: 'var(--text-muted)',
+                    border: '1px solid var(--border)', cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  <Plus size={10} /> {repo}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {repos.length === 0 && (
+            <p style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+              설정 → 계정 → GitHub에서 레포지토리를 먼저 등록하세요.
+            </p>
+          )}
+        </div>
 
         {/* 감사 로그 */}
         {audit.length > 0 && (
