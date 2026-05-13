@@ -38,6 +38,31 @@ interface ElectronBridge {
       user: string;
     }) => Promise<{ ok: true; text: string; usage?: unknown }>;
   };
+  rpc: {
+    getTx: (params: { rpcUrl: string; txHash: string }) => Promise<{ tx: RpcTransaction | null; receipt: RpcReceipt | null }>;
+  };
+}
+
+export interface RpcTransaction {
+  hash: string;
+  from: string;
+  to: string | null;
+  value: string;
+  gas: string;
+  gasPrice: string;
+  nonce: string;
+  blockNumber: string | null;
+  blockHash: string | null;
+  input: string;
+}
+
+export interface RpcReceipt {
+  status: string;
+  gasUsed: string;
+  effectiveGasPrice: string;
+  blockNumber: string;
+  contractAddress: string | null;
+  logs: { address: string; topics: string[]; data: string }[];
 }
 
 declare global {

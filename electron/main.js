@@ -155,6 +155,40 @@ ipcMain.handle('ai:analyze', async (_e, { apiKey, model, system, user }) => {
   });
 });
 
+/* ─── RPC (온체인 조회) ─── */
+
+function rpcFetch(rpcUrl, method, params) {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ method: 'POST', url: rpcUrl });
+    request.setHeader('content-type', 'application/json');
+
+    let body = '';
+    request.on('response', (response) => {
+      response.on('data', (chunk) => { body += chunk.toString('utf8'); });
+      response.on('end', () => {
+        try {
+          const parsed = JSON.parse(body);
+          if (parsed.error) reject(new Error(parsed.error.message || 'RPC error'));
+          else resolve(parsed.result);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    request.on('error', reject);
+    request.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }));
+    request.end();
+  });
+}
+
+ipcMain.handle('rpc:getTx', async (_e, { rpcUrl, txHash }) => {
+  const [tx, receipt] = await Promise.all([
+    rpcFetch(rpcUrl, 'eth_getTransactionByHash', [txHash]),
+    rpcFetch(rpcUrl, 'eth_getTransactionReceipt', [txHash]),
+  ]);
+  return { tx, receipt };
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

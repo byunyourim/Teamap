@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Trash2, ExternalLink, Wallet, AlertTriangle, Activity, ShieldOff, Pause,
+  Loader2, CheckCircle2, XCircle, Search,
 } from 'lucide-react';
 import {
   getAssignedWallets, setAssignedWallets,
@@ -8,13 +9,19 @@ import {
   getWalletGasThreshold, setWalletGasThreshold,
   type ChainAddress,
 } from '../store';
-import { explorerUrl, explorerAddressUrl } from '../slack';
+import { explorerUrl, explorerAddressUrl, isElectron, type RpcTransaction, type RpcReceipt } from '../slack';
 
 const CHAINS = ['Sepolia', 'Fuji', 'KCP'];
 const NATIVE_SYMBOL: Record<string, string> = {
   Sepolia: 'ETH',
   Fuji: 'AVAX',
   KCP: 'KCP',
+};
+
+const RPC_URLS: Record<string, string> = {
+  Sepolia: 'https://rpc.sepolia.org',
+  Fuji: 'https://api.avax-test.network/ext/bc/C/rpc',
+  KCP: 'https://subnets.avax.network/kcp/testnet/rpc',
 };
 
 type Tab = 'lookup' | 'wallets' | 'pending' | 'failed' | 'contracts';
@@ -84,9 +91,41 @@ function resolveChainName(chainId?: string): string {
   return CHAINS.includes(name) ? name : CHAINS[CHAINS.length - 1];
 }
 
+interface TxResult {
+  tx: RpcTransaction;
+  receipt: RpcReceipt;
+  chain: string;
+  hash: string;
+  queriedAt: number;
+}
+
+function hexToDecimal(hex: string | null): string {
+  if (!hex) return '0';
+  return BigInt(hex).toString();
+}
+
+function hexToEther(hex: string | null): string {
+  if (!hex) return '0';
+  const wei = BigInt(hex);
+  const whole = wei / BigInt(1e18);
+  const frac = wei % BigInt(1e18);
+  const fracStr = frac.toString().padStart(18, '0').slice(0, 6).replace(/0+$/, '');
+  return fracStr ? `${whole}.${fracStr}` : whole.toString();
+}
+
+function hexToGwei(hex: string | null): string {
+  if (!hex) return '0';
+  const wei = BigInt(hex);
+  const gwei = Number(wei) / 1e9;
+  return gwei.toFixed(2);
+}
+
 function LookupTab({ initialChain, initialHash }: { initialChain?: string; initialHash?: string }) {
   const [chain, setChain] = useState(resolveChainName(initialChain));
   const [hash, setHash] = useState(initialHash || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TxResult | null>(null);
   const [history, setHistory] = useState<{ chain: string; hash: string; ts: number }[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('teamap_tx_lookup_history') ?? '[]');
@@ -95,54 +134,70 @@ function LookupTab({ initialChain, initialHash }: { initialChain?: string; initi
     }
   });
 
-  const [autoOpened, setAutoOpened] = useState(false);
+  const [autoQueried, setAutoQueried] = useState(false);
 
-  const open = (c: string, h: string) => {
-    const url = explorerUrl(c, h);
-    if (!url) {
-      alert('Explorer URL 매핑이 없는 체인입니다.');
+  const lookup = async (c: string, h: string) => {
+    const rpcUrl = RPC_URLS[c];
+    if (!rpcUrl) {
+      setError(`${c} 체인의 RPC URL이 설정되지 않았습니다.`);
       return;
     }
-    window.open(url, '_blank');
-    const next = [{ chain: c, hash: h, ts: Date.now() }, ...history.filter((x) => x.hash !== h)].slice(0, 10);
-    setHistory(next);
-    localStorage.setItem('teamap_tx_lookup_history', JSON.stringify(next));
+    if (!isElectron() || !window.teamap) {
+      setError('데스크톱 앱에서만 동작합니다.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const normalizedHash = h.startsWith('0x') ? h : `0x${h}`;
+      const { tx, receipt } = await window.teamap.rpc.getTx({ rpcUrl, txHash: normalizedHash });
+      if (!tx) {
+        setError('트랜잭션을 찾을 수 없습니다.');
+        return;
+      }
+      setResult({ tx, receipt: receipt!, chain: c, hash: normalizedHash, queriedAt: Date.now() });
+      const next = [{ chain: c, hash: normalizedHash, ts: Date.now() }, ...history.filter((x) => x.hash !== normalizedHash)].slice(0, 10);
+      setHistory(next);
+      localStorage.setItem('teamap_tx_lookup_history', JSON.stringify(next));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'RPC 조회 실패');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    if (initialHash && !autoOpened) {
-      setAutoOpened(true);
-      const c = resolveChainName(initialChain);
-      open(c, initialHash.startsWith('0x') ? initialHash : `0x${initialHash}`);
+    if (initialHash && !autoQueried) {
+      setAutoQueried(true);
+      lookup(resolveChainName(initialChain), initialHash);
     }
   }, [initialHash]);
 
   const openAddress = (c: string, addr: string) => {
     const url = explorerAddressUrl(c, addr);
-    if (!url) {
-      alert('Explorer URL 매핑이 없는 체인입니다.');
-      return;
-    }
-    window.open(url, '_blank');
+    if (url) window.open(url, '_blank');
   };
 
   const submit = () => {
     const h = hash.trim();
     if (!h) return;
-    // 주소(40자)면 주소 페이지, 64자면 트랜잭션 페이지
     const clean = h.replace(/^0x/i, '');
-    if (clean.length === 40) openAddress(chain, h.startsWith('0x') ? h : `0x${h}`);
-    else open(chain, h.startsWith('0x') ? h : `0x${h}`);
-    setHash('');
+    if (clean.length === 40) {
+      openAddress(chain, h.startsWith('0x') ? h : `0x${h}`);
+    } else {
+      lookup(chain, h);
+    }
   };
 
   return (
     <div style={{ maxWidth: 720 }}>
       <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
-        Tx Hash / 주소 빠른 조회
+        Tx Hash / 주소 조회
       </h2>
       <p style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 14 }}>
-        해시 또는 주소를 붙여넣고 Enter — 해당 체인 Explorer 새 창으로 열립니다.
+        해시를 붙여넣고 Enter — RPC로 트랜잭션 정보를 조회합니다.
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -157,11 +212,134 @@ function LookupTab({ initialChain, initialHash }: { initialChain?: string; initi
           onChange={(e) => setHash(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
         />
-        <button onClick={submit} style={addBtnStyle}>조회 ↗</button>
+        <button onClick={submit} disabled={loading} style={addBtnStyle}>
+          {loading ? <Loader2 size={14} className="spinner" /> : <><Search size={14} /> 조회</>}
+        </button>
       </div>
 
+      {/* 에러 */}
+      {error && (
+        <div style={{ padding: '10px 14px', marginBottom: 12, fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6 }}>
+          {error}
+        </div>
+      )}
+
+      {/* 로딩 */}
+      {loading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', fontSize: 13, color: 'var(--text-muted)' }}>
+          <Loader2 size={16} className="spinner" /> RPC 조회 중...
+        </div>
+      )}
+
+      {/* 결과 */}
+      {result && !loading && (
+        <div style={{
+          background: 'var(--bg-card)', border: '1px solid var(--border)',
+          borderRadius: 10, overflow: 'hidden', marginBottom: 20,
+        }}>
+          {/* 헤더 */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 16px', borderBottom: '1px solid var(--border)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {result.receipt.status === '0x1' ? (
+                <CheckCircle2 size={16} style={{ color: 'var(--success)' }} />
+              ) : (
+                <XCircle size={16} style={{ color: 'var(--danger)' }} />
+              )}
+              <span style={{
+                fontSize: 12, fontWeight: 600,
+                color: result.receipt.status === '0x1' ? 'var(--success)' : 'var(--danger)',
+              }}>
+                {result.receipt.status === '0x1' ? 'Success' : 'Failed'}
+              </span>
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                background: 'var(--bg-input)', color: 'var(--text-muted)',
+                border: '1px solid var(--border)',
+              }}>
+                {result.chain}
+              </span>
+            </div>
+            {explorerUrl(result.chain, result.hash) && (
+              <a
+                href={explorerUrl(result.chain, result.hash)!}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  fontSize: 11, color: 'var(--accent)', textDecoration: 'none',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                <ExternalLink size={10} /> Explorer
+              </a>
+            )}
+          </div>
+
+          {/* 필드 테이블 */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <tbody>
+              <TxRow label="Tx Hash" value={result.hash} mono />
+              <TxRow label="Block" value={hexToDecimal(result.tx.blockNumber)} />
+              <TxRow
+                label="From"
+                value={result.tx.from}
+                mono
+                link={() => openAddress(result.chain, result.tx.from)}
+              />
+              <TxRow
+                label="To"
+                value={result.tx.to || '(Contract Creation)'}
+                mono
+                link={result.tx.to ? () => openAddress(result.chain, result.tx.to!) : undefined}
+              />
+              {result.receipt.contractAddress && (
+                <TxRow
+                  label="Contract"
+                  value={result.receipt.contractAddress}
+                  mono
+                  link={() => openAddress(result.chain, result.receipt.contractAddress!)}
+                />
+              )}
+              <TxRow
+                label="Value"
+                value={`${hexToEther(result.tx.value)} ${NATIVE_SYMBOL[result.chain] ?? ''}`}
+              />
+              <TxRow label="Gas Used" value={`${hexToDecimal(result.receipt.gasUsed)} / ${hexToDecimal(result.tx.gas)}`} />
+              <TxRow label="Gas Price" value={`${hexToGwei(result.receipt.effectiveGasPrice || result.tx.gasPrice)} Gwei`} />
+              <TxRow label="Nonce" value={hexToDecimal(result.tx.nonce)} />
+              {result.receipt.logs.length > 0 && (
+                <TxRow label="Logs" value={`${result.receipt.logs.length}개 이벤트`} />
+              )}
+            </tbody>
+          </table>
+
+          {/* Input Data 미리보기 */}
+          {result.tx.input && result.tx.input !== '0x' && (
+            <details style={{ borderTop: '1px solid var(--border)' }}>
+              <summary style={{
+                padding: '10px 16px', cursor: 'pointer', fontSize: 11,
+                color: 'var(--text-muted)', userSelect: 'none',
+              }}>
+                Input Data ({Math.floor((result.tx.input.length - 2) / 2)} bytes)
+              </summary>
+              <pre style={{
+                padding: '8px 16px 12px', margin: 0, fontSize: 10,
+                fontFamily: 'monospace', color: 'var(--text-faint)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                maxHeight: 120, overflowY: 'auto',
+              }}>
+                {result.tx.input}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* 최근 조회 히스토리 */}
       {history.length > 0 && (
-        <div style={{ marginTop: 24 }}>
+        <div>
           <div style={{
             fontSize: 11, color: 'var(--text-faint)',
             textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6,
@@ -175,7 +353,7 @@ function LookupTab({ initialChain, initialHash }: { initialChain?: string; initi
             {history.map((h, i) => (
               <button
                 key={i}
-                onClick={() => open(h.chain, h.hash)}
+                onClick={() => { setChain(h.chain); setHash(h.hash); lookup(h.chain, h.hash); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '10px 14px', textAlign: 'left',
@@ -203,6 +381,32 @@ function LookupTab({ initialChain, initialHash }: { initialChain?: string; initi
         </div>
       )}
     </div>
+  );
+}
+
+function TxRow({ label, value, mono, link }: { label: string; value: string; mono?: boolean; link?: () => void }) {
+  return (
+    <tr style={{ borderTop: '1px solid var(--border)' }}>
+      <td style={{ padding: '8px 16px', color: 'var(--text-faint)', fontSize: 11, whiteSpace: 'nowrap', width: 100, verticalAlign: 'top' }}>
+        {label}
+      </td>
+      <td style={{ padding: '8px 16px', color: 'var(--text)', fontFamily: mono ? 'monospace' : 'inherit', wordBreak: 'break-all' }}>
+        {link ? (
+          <button
+            onClick={link}
+            style={{
+              fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)',
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              textDecoration: 'underline', textUnderlineOffset: 2,
+            }}
+          >
+            {value}
+          </button>
+        ) : (
+          value
+        )}
+      </td>
+    </tr>
   );
 }
 

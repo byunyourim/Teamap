@@ -423,7 +423,22 @@ function ErrorDetail({
               <tr>
                 <td style={cellLabel}>Tx Hash</td>
                 <td style={cellValue}>
-                  <span style={{ fontFamily: 'monospace' }}>{err.txHash}</span>
+                  {onNavigateWith && err.chainId ? (
+                    <button
+                      onClick={() => onNavigateWith('onchain', { chain: err.chainId!, txHash: err.txHash! })}
+                      style={{
+                        fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)',
+                        background: 'none', border: 'none', padding: 0,
+                        cursor: 'pointer', textDecoration: 'underline',
+                        textUnderlineOffset: 2,
+                      }}
+                      title="온체인 모니터링에서 조회"
+                    >
+                      {err.txHash}
+                    </button>
+                  ) : (
+                    <span style={{ fontFamily: 'monospace' }}>{err.txHash}</span>
+                  )}
                   {txUrl && (
                     <a
                       href={txUrl}
@@ -437,20 +452,6 @@ function ErrorDetail({
                     >
                       <ExternalLink size={11} /> Explorer
                     </a>
-                  )}
-                  {onNavigateWith && err.chainId && (
-                    <button
-                      onClick={() => onNavigateWith('onchain', { chain: err.chainId!, txHash: err.txHash! })}
-                      style={{
-                        marginLeft: 8, padding: '2px 8px', fontSize: 11, fontWeight: 500,
-                        borderRadius: 4, cursor: 'pointer',
-                        background: 'rgba(59,130,246,0.1)', color: 'var(--accent)',
-                        border: '1px solid rgba(59,130,246,0.3)',
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                      }}
-                    >
-                      <ChevronRight size={10} /> 온체인 조회
-                    </button>
                   )}
                 </td>
               </tr>
