@@ -19,7 +19,12 @@ const NATIVE_SYMBOL: Record<string, string> = {
 
 type Tab = 'lookup' | 'wallets' | 'pending' | 'failed' | 'contracts';
 
-export default function OnchainMonitorPage({ bell, back }: { bell?: React.ReactNode; back?: React.ReactNode }) {
+export default function OnchainMonitorPage({ bell, back, initialChain, initialHash }: {
+  bell?: React.ReactNode;
+  back?: React.ReactNode;
+  initialChain?: string;
+  initialHash?: string;
+}) {
   const [tab, setTab] = useState<Tab>('lookup');
 
   return (
@@ -50,7 +55,7 @@ export default function OnchainMonitorPage({ bell, back }: { bell?: React.ReactN
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 28px' }}>
-        {tab === 'lookup' && <LookupTab />}
+        {tab === 'lookup' && <LookupTab initialChain={initialChain} initialHash={initialHash} />}
         {tab === 'wallets' && <WalletsTab />}
         {tab === 'pending' && <PendingTxTab />}
         {tab === 'failed' && <FailedTxTab />}
@@ -68,9 +73,20 @@ export default function OnchainMonitorPage({ bell, back }: { bell?: React.ReactN
 
 /* ─── Tx 검색 ─── */
 
-function LookupTab() {
-  const [chain, setChain] = useState(CHAINS[CHAINS.length - 1]); // 기본 KCP
-  const [hash, setHash] = useState('');
+function resolveChainName(chainId?: string): string {
+  if (!chainId) return CHAINS[CHAINS.length - 1];
+  const map: Record<string, string> = {
+    '11155111': 'Sepolia',
+    '43113': 'Fuji',
+    '56357': 'KCP',
+  };
+  const name = map[chainId] ?? chainId;
+  return CHAINS.includes(name) ? name : CHAINS[CHAINS.length - 1];
+}
+
+function LookupTab({ initialChain, initialHash }: { initialChain?: string; initialHash?: string }) {
+  const [chain, setChain] = useState(resolveChainName(initialChain));
+  const [hash, setHash] = useState(initialHash || '');
   const [history, setHistory] = useState<{ chain: string; hash: string; ts: number }[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('teamap_tx_lookup_history') ?? '[]');
@@ -78,6 +94,8 @@ function LookupTab() {
       return [];
     }
   });
+
+  const [autoOpened, setAutoOpened] = useState(false);
 
   const open = (c: string, h: string) => {
     const url = explorerUrl(c, h);
@@ -90,6 +108,14 @@ function LookupTab() {
     setHistory(next);
     localStorage.setItem('teamap_tx_lookup_history', JSON.stringify(next));
   };
+
+  useEffect(() => {
+    if (initialHash && !autoOpened) {
+      setAutoOpened(true);
+      const c = resolveChainName(initialChain);
+      open(c, initialHash.startsWith('0x') ? initialHash : `0x${initialHash}`);
+    }
+  }, [initialHash]);
 
   const openAddress = (c: string, addr: string) => {
     const url = explorerAddressUrl(c, addr);
