@@ -6,6 +6,7 @@ const SERVICE_AUDIT_KEY = 'teamap_service_audit';
 const CONTRACTS_KEY = 'teamap_assigned_contracts';
 const WALLETS_KEY = 'teamap_assigned_wallets';
 const WALLET_GAS_THRESHOLD_KEY = 'teamap_wallet_gas_threshold';
+const DEP_CHAIN_KEY = 'teamap_service_dep_chain';
 
 export interface ChainAddress {
   chain: string;
@@ -143,6 +144,41 @@ export function setWalletGasThreshold(v: number) {
   localStorage.setItem(WALLET_GAS_THRESHOLD_KEY, String(v));
 }
 
+/* ─── 서비스 의존 체인 ─── */
+
+export function getServiceDepChain(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(DEP_CHAIN_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((s) => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setServiceDepChain(chain: string[]) {
+  localStorage.setItem(DEP_CHAIN_KEY, JSON.stringify(chain));
+}
+
+/** 레포명(예: "StableCoinTF/bc-adapter")에서 서비스명(예: "bc-adapter") 추출 */
+export function repoToService(repo: string): string {
+  return repo.split('/').pop() ?? repo;
+}
+
+/** 서비스명으로 체인에서 위치 찾기. 연관 서비스(상위 1개 + 하위 전체) 반환 */
+export function getRelatedServices(service: string): string[] {
+  const chain = getServiceDepChain();
+  const names = chain.map(repoToService);
+  const idx = names.findIndex((n) => n === service);
+  if (idx === -1) return [];
+
+  const related: string[] = [];
+  if (idx > 0) related.push(names[idx - 1]);       // 상위 1개
+  for (let i = idx + 1; i < names.length; i++) {    // 하위 전체
+    related.push(names[i]);
+  }
+  return related;
+}
+
 /* ─── 인시던트 관리 ─── */
 
 const INCIDENTS_KEY = 'teamap_incidents';
@@ -152,7 +188,7 @@ export type IncidentSeverity = 'sev1' | 'sev2' | 'sev3';
 
 export interface IncidentTimelineEntry {
   ts: number;
-  type: 'note' | 'status' | 'action' | 'error' | 'deploy';
+  type: 'note' | 'status' | 'action' | 'error' | 'deploy' | 'analysis';
   user: string;
   message: string;
 }
