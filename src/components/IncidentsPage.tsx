@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, AlertCircle, Clock, CheckCircle2, X, Send, Rocket, Loader2 } from 'lucide-react';
+import { Plus, AlertCircle, Clock, CheckCircle2, X, Send, Rocket, Loader2, Sparkles, RotateCw } from 'lucide-react';
 import {
   getIncidents, upsertIncident, newIncidentId,
   getAssignedServices, getAssignedWallets, getAssignedContracts,
@@ -8,6 +8,15 @@ import {
   type IncidentTimelineEntry,
 } from '../store';
 import { getToken, fetchWorkflowRuns, type WorkflowRun } from '../github';
+import {
+  analyzeIncidentRca,
+  getAnthropicKey, getGeminiKey, getProvider,
+} from '../ai';
+import {
+  fetchHistory, parseError,
+  getSlackToken, getSlackChannel,
+  type ParsedError,
+} from '../slack';
 
 const STATUSES: { value: IncidentStatus; label: string; color: string }[] = [
   { value: 'investigating', label: '조사 중', color: 'var(--danger)' },
@@ -162,6 +171,12 @@ function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: 
   const [postmortem, setPostmortem] = useState(incident.postmortem ?? '');
   const [deploys, setDeploys] = useState<RecentDeploy[]>([]);
   const [deploysLoading, setDeploysLoading] = useState(false);
+  const [rcaText, setRcaText] = useState<string | null>(null);
+  const [rcaLoading, setRcaLoading] = useState(false);
+  const [rcaError, setRcaError] = useState<string | null>(null);
+  const slackConfigured = !!getSlackToken() && !!getSlackChannel();
+  const provider = getProvider();
+  const hasAiKey = provider === 'anthropic' ? !!getAnthropicKey() : !!getGeminiKey();
   const services = getAssignedServices();
   const wallets = getAssignedWallets();
   const contracts = getAssignedContracts();
@@ -234,6 +249,52 @@ function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: 
 
   const savePostmortem = () => {
     onChange({ ...incident, postmortem });
+  };
+
+  const runRca = async () => {
+    setRcaLoading(true);
+    setRcaError(null);
+    try {
+      let errors: ParsedError[] = [];
+      if (slackConfigured && typeof window !== 'undefined' && window.teamap) {
+        const oldest = String((incident.createdAt - 10 * 60 * 1000) / 1000);
+        const messages = await fetchHistory(oldest, 200);
+        errors = messages
+          .map((m) => parseError(m))
+          .filter((p): p is ParsedError => p !== null)
+          .filter((e) => {
+            if (incident.affectedServices.length === 0) return true;
+            return incident.affectedServices.some((s) =>
+              e.service.toLowerCase().includes(s.toLowerCase())
+            );
+          });
+      }
+
+      const text = await analyzeIncidentRca({
+        title: incident.title,
+        severity: incident.severity,
+        affectedServices: incident.affectedServices,
+        createdAt: incident.createdAt,
+        timeline: incident.timeline,
+        errors,
+      });
+
+      setRcaText(text);
+
+      onChange({
+        ...incident,
+        timeline: [...incident.timeline, {
+          ts: Date.now(),
+          type: 'analysis' as const,
+          user: 'AI',
+          message: text,
+        }],
+      });
+    } catch (e) {
+      setRcaError(e instanceof Error ? e.message : 'RCA 분석 실패');
+    } finally {
+      setRcaLoading(false);
+    }
   };
 
   return (
@@ -346,6 +407,76 @@ function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: 
                 </span>
               </a>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* AI 원인 분석 */}
+      <section>
+        <h3 style={sectionTitle}>
+          <Sparkles size={13} style={{ marginRight: 6, verticalAlign: -1, color: 'var(--accent)' }} />
+          AI 원인 분석 (RCA)
+        </h3>
+        {!rcaText && !rcaLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={runRca}
+              disabled={!hasAiKey}
+              title={hasAiKey ? 'Slack 에러 + 타임라인을 AI가 종합 분석' : 'API 키를 먼저 등록하세요'}
+              style={{
+                padding: '8px 16px', fontSize: 12, fontWeight: 500, borderRadius: 6,
+                background: hasAiKey ? 'var(--accent)' : 'transparent',
+                color: hasAiKey ? '#fff' : 'var(--text-faint)',
+                border: hasAiKey ? 'none' : '1px solid var(--border)',
+                cursor: hasAiKey ? 'pointer' : 'not-allowed',
+                opacity: hasAiKey ? 1 : 0.6,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <Sparkles size={12} /> RCA 분석 실행
+            </button>
+            {!slackConfigured && (
+              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                Slack 미연동 — 타임라인 기반으로만 분석됩니다
+              </span>
+            )}
+          </div>
+        )}
+        {rcaLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+            <Loader2 size={12} className="spinner" /> AI 분석 중...
+          </div>
+        )}
+        {rcaError && (
+          <p style={{ fontSize: 12, color: 'var(--danger)', padding: '8px 0' }}>{rcaError}</p>
+        )}
+        {rcaText && !rcaLoading && (
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: 14,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                {provider} · {new Date().toLocaleString('ko-KR', { hour12: false })}
+              </span>
+              <button
+                onClick={() => { setRcaText(null); runRca(); }}
+                style={{
+                  background: 'transparent', border: '1px solid var(--border)',
+                  color: 'var(--text-faint)', cursor: 'pointer',
+                  padding: '4px 8px', borderRadius: 4, fontSize: 11,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                <RotateCw size={10} /> 다시 분석
+              </button>
+            </div>
+            <div style={{
+              fontSize: 12, color: 'var(--text)', lineHeight: 1.6,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              {rcaText}
+            </div>
           </div>
         )}
       </section>
@@ -564,8 +695,9 @@ function Pill({ label, value, color }: { label: string; value: number; color: st
 
 function TimelineIcon({ type }: { type: IncidentTimelineEntry['type'] }) {
   if (type === 'error') return <AlertCircle size={12} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />;
-  if (type === 'deploy') return <Clock size={12} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />;
+  if (type === 'deploy') return <Rocket size={12} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />;
   if (type === 'status') return <CheckCircle2 size={12} style={{ color: 'var(--success)', flexShrink: 0, marginTop: 2 }} />;
+  if (type === 'analysis') return <Sparkles size={12} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />;
   return <span style={{
     width: 8, height: 8, borderRadius: '50%', background: 'var(--text-faint)',
     flexShrink: 0, marginTop: 4,
