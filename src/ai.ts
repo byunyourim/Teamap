@@ -1,6 +1,7 @@
 import type { ParsedError } from './slack';
 import type { CodeSearchHit } from './github';
 import { searchCode } from './github';
+import { getServiceDepChain, repoToService, getRelatedServices } from './store';
 
 const ANTHROPIC_KEY = 'anthropic_api_key';
 const GEMINI_KEY = 'gemini_api_key';
@@ -60,6 +61,35 @@ const SYSTEM_PROMPT = `당신은 블록체인 서비스 시니어 백엔드 엔�
 - 검색 결과에 일치하는 게 없으면 "코드에서 정확한 위치 미발견"이라고 명시
 - 한국어, 5-10줄 이내, 간결하게`;
 
+const CHAIN_SYSTEM_PROMPT = `당신은 블록체인 서비스 시니어 백엔드 엔지니어입니다.
+여러 마이크로서비스에 걸친 에러 로그를 분석하여 **근본 원인(Root Cause)**을 찾는 게 임무입니다.
+서비스 의존 체인 구조를 이해하고, 에러의 인과 관계와 전파 경로를 추적하세요.
+
+응답 형식 (마크다운):
+
+## 근본 원인
+1-3문장. 에러 체인의 시작점과 전파 경로 설명.
+
+## 에러 지점
+- **서비스**: 근본 원인이 있는 서비스명
+- **파일**: \`path/to/file.ts\` (라인 N)
+- **GitHub**: <전달받은 코드 검색 결과의 url>
+- **함수**: \`functionName()\` (있으면)
+
+## 전파 경로
+서비스A (원인) → 서비스B (영향) → 서비스C (증상)
+각 단계에서 어떤 에러가 발생했는지 1줄 설명.
+
+## 빠른 점검
+- [ ] 즉시 확인할 항목 (근본 원인 서비스 기준)
+- [ ] 2-4개
+
+규칙:
+- 코드 검색 결과 중 가장 가능성 높은 한 곳만 찍어줄 것 (확신 없으면 "후보:" 형태로 2개)
+- 검색 결과에 일치하는 게 없으면 "코드에서 정확한 위치 미발견"이라고 명시
+- 시간 순서와 의존 방향을 고려해 인과 관계 판단
+- 한국어, 간결하게`;
+
 export interface AnalysisResult {
   text: string;
   cachedAt: number;
@@ -94,6 +124,33 @@ export function clearCachedAnalysis(ts: string) {
   const c = getCache();
   delete c[ts];
   setCache(c);
+}
+
+/** 시간 윈도우 내 연관 서비스 에러 수집 */
+export function collectRelatedErrors(
+  err: ParsedError,
+  allErrors: ParsedError[],
+  windowMinutes = 5,
+): ParsedError[] {
+  if (!err.service) return [];
+  const related = getRelatedServices(err.service);
+  if (related.length === 0) return [];
+
+  const errTime = err.timestamp ? new Date(err.timestamp.replace(' ', 'T')).getTime() : 0;
+  if (!errTime) return [];
+
+  const windowMs = windowMinutes * 60 * 1000;
+
+  return allErrors.filter((e) => {
+    if (e.ts === err.ts) return false;
+    if (!related.includes(e.service)) return false;
+    const t = e.timestamp ? new Date(e.timestamp.replace(' ', 'T')).getTime() : 0;
+    return t && Math.abs(t - errTime) <= windowMs;
+  }).sort((a, b) => {
+    const ta = a.timestamp ? new Date(a.timestamp.replace(' ', 'T')).getTime() : 0;
+    const tb = b.timestamp ? new Date(b.timestamp.replace(' ', 'T')).getTime() : 0;
+    return ta - tb;
+  });
 }
 
 /** 에러에서 검색용 키워드 후보를 추출
@@ -184,6 +241,82 @@ export async function analyzeError(err: ParsedError, force = false): Promise<Ana
   return result;
 }
 
+export async function analyzeErrorWithChain(
+  err: ParsedError,
+  allErrors: ParsedError[],
+  force = false,
+): Promise<AnalysisResult> {
+  const relatedErrors = collectRelatedErrors(err, allErrors);
+
+  // 연관 에러가 없으면 기존 단일 분석
+  if (relatedErrors.length === 0) {
+    return analyzeError(err, force);
+  }
+
+  if (!force) {
+    const cached = getCachedAnalysis(err.ts);
+    if (cached) return cached;
+  }
+
+  if (!window.teamap) throw new Error('데스크톱 앱에서만 동작합니다.');
+
+  const provider = getProvider();
+  const apiKey = provider === 'anthropic' ? getAnthropicKey() : getGeminiKey();
+  if (!apiKey) {
+    throw new Error(`${provider === 'anthropic' ? 'Anthropic' : 'Gemini'} API 키를 설정 → 계정에서 등록하세요.`);
+  }
+
+  // 1. GitHub 코드 검색 — 주 에러 + 연관 에러 모두
+  const mainHits = await searchErrorLocation(err);
+  const relatedHitsArr = await Promise.all(
+    relatedErrors.slice(0, 3).map((e) => searchErrorLocation(e)),
+  );
+  const seen = new Set(mainHits.map((h) => `${h.repo}/${h.path}`));
+  const allHits = [...mainHits];
+  for (const rh of relatedHitsArr) {
+    for (const h of rh) {
+      const key = `${h.repo}/${h.path}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        allHits.push(h);
+      }
+    }
+  }
+  const hits = allHits.slice(0, 15);
+
+  // 2. 체인 인식 프롬프트
+  const userMessage = formatChainPrompt(err, relatedErrors, hits);
+
+  // 3. AI 호출
+  const r = provider === 'anthropic'
+    ? await window.teamap.ai.analyze({
+        apiKey,
+        model: ANTHROPIC_MODEL,
+        system: CHAIN_SYSTEM_PROMPT,
+        user: userMessage,
+      })
+    : await window.teamap.ai.gemini({
+        apiKey,
+        model: GEMINI_MODEL,
+        system: CHAIN_SYSTEM_PROMPT,
+        user: userMessage,
+      });
+
+  const result: AnalysisResult = {
+    text: r.text,
+    cachedAt: Date.now(),
+    model: provider === 'anthropic' ? ANTHROPIC_MODEL : GEMINI_MODEL,
+    provider,
+    hits,
+  };
+
+  const cache = getCache();
+  cache[err.ts] = result;
+  setCache(cache);
+
+  return result;
+}
+
 function formatPrompt(err: ParsedError, hits: CodeSearchHit[]): string {
   const fieldsText = Object.entries(err.fields)
     .map(([k, v]) => `${k}: ${v}`)
@@ -218,6 +351,62 @@ ${hitsText}
 위 코드 검색 결과 중 어디서 이 에러가 던져졌는지 찾아주세요.`;
 }
 
+function formatChainPrompt(
+  err: ParsedError,
+  relatedErrors: ParsedError[],
+  hits: CodeSearchHit[],
+): string {
+  const chain = getServiceDepChain();
+  const chainText = chain.length > 0
+    ? chain.map(repoToService).join(' → ')
+    : '(미설정)';
+
+  const mainFields = Object.entries(err.fields)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+
+  const relatedText = relatedErrors.length === 0
+    ? '(연관 에러 없음)'
+    : relatedErrors.map((e) => {
+        const fields = Object.entries(e.fields)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n');
+        return `[${e.service}] ${e.component} — ${e.summary}\n${fields}`;
+      }).join('\n\n');
+
+  const hitsText = hits.length === 0
+    ? '(검색 결과 없음)'
+    : hits.map((h, i) => (
+        `### 후보 ${i + 1}\n` +
+        `파일: ${h.repo}/${h.path}\n` +
+        `URL: ${h.url}\n` +
+        `매치 컨텍스트:\n${h.fragments.map((f) => '```\n' + f + '\n```').join('\n')}`
+      )).join('\n\n');
+
+  return `# 서비스 의존 체인
+${chainText}
+
+# 주 에러 (${err.service || '알 수 없음'})
+[${err.service}] ${err.component} — ${err.summary}
+${err.level ? `심각도: ${err.level}` : ''}
+
+상세 필드:
+${mainFields}
+
+원본 메시지:
+\`\`\`
+${err.raw}
+\`\`\`
+
+# 연관 에러 (±5분 내, 시간순)
+${relatedText}
+
+# GitHub 코드 검색 결과
+${hitsText}
+
+위 에러들의 인과 관계를 파악하고 근본 원인(Root Cause)을 분석하세요.`;
+}
+
 export async function testApiKey(provider: Provider = getProvider()): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!window.teamap) return { ok: false, error: '데스크톱 앱에서만 동작합니다.' };
   const apiKey = provider === 'anthropic' ? getAnthropicKey() : getGeminiKey();
@@ -243,4 +432,99 @@ export async function testApiKey(provider: Provider = getProvider()): Promise<{ 
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '연결 실패' };
   }
+}
+
+const RCA_SYSTEM_PROMPT = `당신은 블록체인 서비스 인시던트 대응 전문가입니다.
+인시던트 정보, 서비스 의존 체인, 관련 에러 로그, 기존 타임라인을 종합하여 근본 원인 분석(RCA)을 수행하세요.
+
+응답 형식 (마크다운):
+
+## 근본 원인 (Root Cause)
+1-3문장. 인시던트의 시작점과 원인.
+
+## 에러 전파 경로
+서비스A → 서비스B → 서비스C 형태로 각 단계 1줄 설명.
+
+## 영향 범위
+어떤 서비스/기능이 영향을 받았는지 정리.
+
+## 즉시 조치 사항
+- [ ] 조치 1
+- [ ] 조치 2
+- [ ] 조치 3
+
+## 재발 방지
+장기적으로 개선할 포인트 1-2개.
+
+규칙:
+- 시간 순서와 의존 방향을 근거로 인과 관계 판단
+- 추측과 사실을 구분하여 명시
+- 한국어, 간결하게`;
+
+export interface RcaInput {
+  title: string;
+  severity: string;
+  affectedServices: string[];
+  createdAt: number;
+  timeline: { ts: number; type: string; user: string; message: string }[];
+  errors: ParsedError[];
+}
+
+export async function analyzeIncidentRca(input: RcaInput): Promise<string> {
+  if (!window.teamap) throw new Error('데스크톱 앱에서만 동작합니다.');
+
+  const provider = getProvider();
+  const apiKey = provider === 'anthropic' ? getAnthropicKey() : getGeminiKey();
+  if (!apiKey) {
+    throw new Error(`${provider === 'anthropic' ? 'Anthropic' : 'Gemini'} API 키를 설정하세요.`);
+  }
+
+  const chain = getServiceDepChain();
+  const chainText = chain.length > 0
+    ? chain.map(repoToService).join(' → ')
+    : '(미설정)';
+
+  const errorsText = input.errors.length === 0
+    ? '(관련 에러 없음)'
+    : input.errors.map((e) => {
+        const fields = Object.entries(e.fields).map(([k, v]) => `${k}: ${v}`).join('\n');
+        return `[${e.service}] ${e.component} — ${e.summary}\n${fields}`;
+      }).join('\n\n');
+
+  const timelineText = input.timeline
+    .map((t) => `${new Date(t.ts).toLocaleTimeString('ko-KR', { hour12: false })} [${t.type}] ${t.message} (${t.user})`)
+    .join('\n');
+
+  const userMessage = `# 인시던트 정보
+제목: ${input.title}
+심각도: ${input.severity}
+영향 서비스: ${input.affectedServices.join(', ') || '(미지정)'}
+생성: ${new Date(input.createdAt).toLocaleString('ko-KR', { hour12: false })}
+
+# 서비스 의존 체인
+${chainText}
+
+# 관련 에러 로그 (시간순)
+${errorsText}
+
+# 기존 타임라인
+${timelineText}
+
+위 정보를 종합하여 근본 원인 분석(RCA)을 수행하세요.`;
+
+  const r = provider === 'anthropic'
+    ? await window.teamap.ai.analyze({
+        apiKey,
+        model: ANTHROPIC_MODEL,
+        system: RCA_SYSTEM_PROMPT,
+        user: userMessage,
+      })
+    : await window.teamap.ai.gemini({
+        apiKey,
+        model: GEMINI_MODEL,
+        system: RCA_SYSTEM_PROMPT,
+        user: userMessage,
+      });
+
+  return r.text;
 }
