@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('teamap', {
     fetchReplies: (params) => ipcRenderer.invoke('slack:replies', params),
     listChannels: (params) => ipcRenderer.invoke('slack:listChannels', params),
     channelInfo: (params) => ipcRenderer.invoke('slack:channelInfo', params),
+    postMessage: (params) => ipcRenderer.invoke('slack:postMessage', params),
   },
   ai: {
     analyze: (params) => ipcRenderer.invoke('ai:analyze', params),

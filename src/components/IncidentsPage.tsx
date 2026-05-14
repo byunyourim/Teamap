@@ -199,6 +199,7 @@ function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: 
   }, [incident.id]);
 
   const setStatus = (status: IncidentStatus) => {
+    const statusLabel = STATUSES.find((s) => s.value === status)?.label ?? status;
     const next: Incident = {
       ...incident,
       status,
@@ -207,7 +208,7 @@ function IncidentDetail({ incident, onChange }: { incident: Incident; onChange: 
         ts: Date.now(),
         type: 'status',
         user: getUsername() || 'unknown',
-        message: `상태 변경 → ${STATUSES.find((s) => s.value === status)?.label}`,
+        message: `상태 변경 → ${statusLabel}`,
       }],
     };
     onChange(next);

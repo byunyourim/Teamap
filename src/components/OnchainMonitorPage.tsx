@@ -21,7 +21,7 @@ const NATIVE_SYMBOL: Record<string, string> = {
 const RPC_URLS: Record<string, string> = {
   Sepolia: 'https://rpc.sepolia.org',
   Fuji: 'https://api.avax-test.network/ext/bc/C/rpc',
-  KCP: 'https://subnets.avax.network/kcp/testnet/rpc',
+  KCP: 'https://subnets.avax.network/monthlygol/testnet/rpc',
 };
 
 type Tab = 'lookup' | 'wallets' | 'pending' | 'failed' | 'contracts';
@@ -147,11 +147,16 @@ function LookupTab({ initialChain, initialHash }: { initialChain?: string; initi
       return;
     }
 
+    const normalizedHash = h.startsWith('0x') ? h : `0x${h}`;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(normalizedHash)) {
+      setError('유효하지 않은 Tx Hash입니다. 0x + 64자리 hex 형식이어야 합니다.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const normalizedHash = h.startsWith('0x') ? h : `0x${h}`;
       const { tx, receipt } = await window.teamap.rpc.getTx({ rpcUrl, txHash: normalizedHash });
       if (!tx) {
         setError('트랜잭션을 찾을 수 없습니다.');

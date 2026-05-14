@@ -84,6 +84,32 @@ ipcMain.handle('slack:channelInfo', async (_e, { token, channel }) => {
   return slackFetch(token, 'conversations.info', { channel });
 });
 
+ipcMain.handle('slack:postMessage', async (_e, { token, channel, text }) => {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ method: 'POST', url: 'https://slack.com/api/chat.postMessage' });
+    request.setHeader('Authorization', `Bearer ${token}`);
+    request.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+    let body = '';
+    request.on('response', (response) => {
+      response.on('data', (chunk) => { body += chunk.toString('utf8'); });
+      request.on('error', reject);
+      response.on('end', () => {
+        try {
+          const parsed = JSON.parse(body);
+          if (!parsed.ok) reject(new Error(parsed.error || 'Slack API error'));
+          else resolve(parsed);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    request.on('error', reject);
+    request.write(JSON.stringify({ channel, text }));
+    request.end();
+  });
+});
+
 ipcMain.handle('ai:gemini', async (_e, { apiKey, model, system, user }) => {
   return new Promise((resolve, reject) => {
     const m = model || 'gemini-2.5-flash';
@@ -164,14 +190,27 @@ function rpcFetch(rpcUrl, method, params) {
 
     let body = '';
     request.on('response', (response) => {
+      const status = response.statusCode;
       response.on('data', (chunk) => { body += chunk.toString('utf8'); });
       response.on('end', () => {
+        if (status && status >= 400) {
+          reject(new Error(`RPC 요청 실패 (HTTP ${status}). URL을 확인하세요.`));
+          return;
+        }
         try {
+          if (!body.trim()) {
+            reject(new Error(`RPC 빈 응답 (HTTP ${status})`));
+            return;
+          }
+          if (body.trimStart().startsWith('<')) {
+            reject(new Error(`RPC가 JSON이 아닌 응답을 반환했습니다 (HTTP ${status}). URL을 확인하세요.`));
+            return;
+          }
           const parsed = JSON.parse(body);
           if (parsed.error) reject(new Error(parsed.error.message || 'RPC error'));
           else resolve(parsed.result);
         } catch (e) {
-          reject(e);
+          reject(new Error(`RPC 응답 파싱 실패: ${e.message}`));
         }
       });
     });

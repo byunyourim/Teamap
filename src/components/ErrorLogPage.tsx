@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, RefreshCw, ExternalLink, AlertCircle, ChevronRight, Search, Sparkles, RotateCw } from 'lucide-react';
+import { Loader2, RefreshCw, ExternalLink, AlertCircle, ChevronRight, Search, Sparkles, RotateCw, Siren } from 'lucide-react';
+import { upsertIncident, newIncidentId, getUsername, type IncidentSeverity } from '../store';
 import {
   fetchHistory, fetchReplies, parseError, explorerUrl, chainName, isElectron,
   getSlackToken, getSlackChannel,
@@ -170,25 +171,39 @@ export default function ErrorLogPage({ bell, back, onNavigateWith }: {
                   padding: '12px 16px', cursor: 'pointer',
                   background: selected?.ts === e.ts ? 'var(--bg-hover)' : 'transparent',
                   border: 'none', borderBottom: '1px solid var(--border)',
-                  fontFamily: 'inherit',
+                  fontFamily: 'inherit', overflow: 'hidden', minWidth: 0,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, overflow: 'hidden', whiteSpace: 'nowrap', minWidth: 0 }}>
                   {e.level && <LevelBadge level={e.level} />}
                   {e.service && (
-                    <span style={{ color: 'var(--text-faint)', fontFamily: 'monospace' }}>
+                    <span style={{ color: 'var(--text-faint)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                       [{e.service}]
                     </span>
                   )}
                   {e.component && (
-                    <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                    <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {e.component}
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.4 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
                   {e.summary}
                 </div>
+                {(e.fields.results || e.fields.result) && (
+                  <div style={{
+                    fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {(() => {
+                      const text = e.fields.results || e.fields.result || '';
+                      return text.length > 50 ? text.slice(0, 50) + '...' : text;
+                    })()}
+                  </div>
+                )}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   fontSize: 11, color: 'var(--text-dim)',
@@ -274,6 +289,33 @@ function ErrorDetail({
     runAnalyze(true);
   };
 
+  const [incidentCreated, setIncidentCreated] = useState(false);
+
+  const createIncident = () => {
+    const severity: IncidentSeverity =
+      err.level?.toUpperCase() === 'ERROR' ? 'sev2' :
+      err.level?.toUpperCase() === 'FATAL' ? 'sev1' : 'sev3';
+    const inc = {
+      id: newIncidentId(),
+      title: err.summary,
+      severity,
+      status: 'investigating' as const,
+      createdAt: Date.now(),
+      affectedServices: err.service ? [err.service] : [],
+      affectedWallets: [],
+      affectedContracts: [],
+      sourceErrorTs: err.ts,
+      timeline: [{
+        ts: Date.now(),
+        type: 'error' as const,
+        user: getUsername() || 'unknown',
+        message: `에러 로그에서 생성\n${err.service ? `[${err.service}] ` : ''}${err.component || ''}\n${err.summary}`,
+      }],
+    };
+    upsertIncident(inc);
+    setIncidentCreated(true);
+  };
+
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* 헤더 */}
@@ -291,9 +333,28 @@ function ErrorDetail({
             </span>
           )}
         </div>
-        <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4 }}>
-          {err.summary}
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, flex: 1 }}>
+            {err.summary}
+          </h2>
+          <button
+            onClick={createIncident}
+            disabled={incidentCreated}
+            title="이 에러로 인시던트 생성"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '6px 12px', fontSize: 12, fontWeight: 500, borderRadius: 6,
+              flexShrink: 0,
+              background: incidentCreated ? 'transparent' : 'rgba(239,68,68,0.12)',
+              color: incidentCreated ? 'var(--text-faint)' : 'var(--danger)',
+              border: `1px solid ${incidentCreated ? 'var(--border)' : 'rgba(239,68,68,0.3)'}`,
+              cursor: incidentCreated ? 'default' : 'pointer',
+            }}
+          >
+            <Siren size={12} />
+            {incidentCreated ? '인시던트 생성됨' : '인시던트 생성'}
+          </button>
+        </div>
       </div>
 
       {/* AI 분석 */}
@@ -463,25 +524,6 @@ function ErrorDetail({
           </tbody>
         </table>
       </div>
-
-      {/* 원문 */}
-      <details>
-        <summary style={{
-          cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)',
-          padding: '4px 0', userSelect: 'none',
-        }}>
-          <ChevronRight size={11} style={{ verticalAlign: 'middle' }} /> 원본 메시지
-        </summary>
-        <pre style={{
-          background: 'var(--bg-input)', border: '1px solid var(--border)',
-          borderRadius: 6, padding: 12, marginTop: 8,
-          fontSize: 11, fontFamily: 'monospace',
-          color: 'var(--text)', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-          maxHeight: 300, overflowY: 'auto',
-        }}>
-          {raw?.text || err.raw}
-        </pre>
-      </details>
 
       {/* 스레드 */}
       {(err.replyCount ?? 0) > 0 && (

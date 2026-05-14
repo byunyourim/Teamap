@@ -1,4 +1,5 @@
-import { useState, type LucideIcon } from 'react';
+import { useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   ChevronRight,
   Calendar,
@@ -58,6 +59,7 @@ const sections: Section[] = [
     icon: Settings,
     items: [
       { id: 'error-logs', label: '에러 로그', icon: AlertCircle },
+      { id: 'daily-report', label: '일간 리포트', icon: BarChart3 },
       { id: 'incidents', label: '인시던트', icon: Siren },
       { id: 'deployments', label: '배포 트래킹', icon: Rocket },
       { id: 'onchain', label: '온체인 모니터링', icon: Wallet },

@@ -4,6 +4,7 @@ import TeamStatusPage from './TeamStatusPage';
 import DashboardPage from './DashboardPage';
 import CodeReviewPage from './CodeReviewPage';
 import WeeklyReportPage from './WeeklyReportPage';
+import DailyReportPage from './DailyReportPage';
 import SettingsAccountPage from './SettingsAccountPage';
 import SettingsAppearancePage from './SettingsAppearancePage';
 import ServiceMgmtPage from './ServiceMgmtPage';
@@ -55,6 +56,9 @@ export default function MainContent({ activeItem, onNavigate, onNavigateWith, na
   }
   if (activeItem === 'service-mgmt') {
     return <ServiceMgmtPage bell={bell} back={back} />;
+  }
+  if (activeItem === 'daily-report') {
+    return <DailyReportPage bell={bell} back={back} />;
   }
   if (activeItem === 'error-logs') {
     return <ErrorLogPage bell={bell} back={back} onNavigateWith={onNavigateWith} />;

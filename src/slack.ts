@@ -23,6 +23,7 @@ interface ElectronBridge {
     fetchReplies: (params: { token: string; channel: string; ts: string }) => Promise<SlackHistoryResponse>;
     listChannels: (params: { token: string }) => Promise<SlackChannelsResponse>;
     channelInfo: (params: { token: string; channel: string }) => Promise<SlackChannelInfoResponse>;
+    postMessage: (params: { token: string; channel: string; text: string }) => Promise<{ ok: boolean }>;
   };
   ai: {
     analyze: (params: {
@@ -210,7 +211,7 @@ export function parseError(msg: SlackMessage): ParsedError | null {
   //   [ERROR] PaymentService ? Payment transfer failed   (이모지가 ?로 깨진 경우)
   // 구분자: — – - · ▸ ▶ → > | ? ❓ 🔴 ❌ ⚠️ 등
   const SEP_CLASS = '[—–\\-·▸▶→>|?❓🔴❌⚠️]';
-  const headerRe = new RegExp(`^\\[([^\\]]+)\\]\\s*(.+?)\\s*${SEP_CLASS}+\\s*(.+)$`);
+  const headerRe = new RegExp(`^\\[([^\\]]+)\\]\\s*(.+?)\\s+${SEP_CLASS}+\\s+(.+)$`);
   const headerMatch = lines[0].match(headerRe);
 
   let service = '';
@@ -263,12 +264,12 @@ function explorerBase(chainId: string): string | undefined {
   const byName: Record<string, string> = {
     SEPOLIA: 'https://sepolia.etherscan.io',
     FUJI: 'https://testnet.snowtrace.io',
-    KCP: 'https://explorer-test.avax.network/c-chain',
+    KCP: 'https://explorer-test.avax.network/monthlygol',
   };
   const byNumber: Record<string, string> = {
     '11155111': 'https://sepolia.etherscan.io',
     '43113':    'https://testnet.snowtrace.io',
-    '56357':    'https://explorer-test.avax.network/c-chain',
+    '56357':    'https://explorer-test.avax.network/monthlygol',
   };
   return byNumber[chainId] ?? byName[chainId.toUpperCase()];
 }
@@ -283,6 +284,13 @@ export function explorerAddressUrl(chainId: string | undefined, address: string 
   if (!chainId || !address) return null;
   const base = explorerBase(chainId);
   return base ? `${base}/address/${address}` : null;
+}
+
+export async function postSlackMessage(text: string): Promise<void> {
+  const token = getSlackToken();
+  const channel = getSlackChannel();
+  if (!token || !channel || !window.teamap) return;
+  await window.teamap.slack.postMessage({ token, channel, text });
 }
 
 /** chainId가 숫자면 사람이 읽기 쉬운 이름으로 변환 */
