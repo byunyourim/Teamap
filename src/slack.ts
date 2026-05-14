@@ -303,3 +303,32 @@ export function chainName(chainId: string | undefined): string | undefined {
   };
   return map[chainId] ?? chainId;
 }
+
+const WORK_END_HOUR = 18;
+const WORK_START_HOUR = 9;
+
+export interface OvernightRange {
+  start: Date;
+  end: Date;
+  label: string;
+}
+
+export function getOvernightRange(): OvernightRange {
+  const now = new Date();
+  const end = new Date(now);
+
+  let start: Date;
+  if (now.getHours() < WORK_START_HOUR) {
+    start = new Date(now);
+    start.setDate(start.getDate() - 1);
+    start.setHours(WORK_END_HOUR, 0, 0, 0);
+  } else {
+    start = new Date(now);
+    start.setDate(start.getDate() - 1);
+    start.setHours(WORK_END_HOUR, 0, 0, 0);
+    end.setHours(WORK_START_HOUR, 0, 0, 0);
+    end.setSeconds(0, 0);
+  }
+
+  return { start, end, label: '오버나이트 (퇴근 후)' };
+}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Loader2, RefreshCw, Sparkles, AlertCircle, RotateCw, Moon, Sun } from 'lucide-react';
 import {
   fetchHistory, parseError,
-  getSlackToken, getSlackChannel,
+  getSlackToken, getSlackChannel, getOvernightRange,
   type ParsedError,
 } from '../slack';
 import {
@@ -10,35 +10,11 @@ import {
 } from '../ai';
 import { getIncidents } from '../store';
 
-const WORK_END_HOUR = 18;
-const WORK_START_HOUR = 9;
-
 function getTodayRange() {
   const now = new Date();
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   return { start, end: now, label: '오늘 전체' };
-}
-
-function getOvernightRange() {
-  const now = new Date();
-  const end = new Date(now);
-
-  let start: Date;
-  if (now.getHours() < WORK_START_HOUR) {
-    // 출근 전 → 어젯밤 18시부터 지금까지
-    start = new Date(now);
-    start.setDate(start.getDate() - 1);
-    start.setHours(WORK_END_HOUR, 0, 0, 0);
-  } else {
-    // 출근 후 → 어젯밤 18시부터 오늘 9시까지
-    start = new Date(now);
-    start.setDate(start.getDate() - 1);
-    start.setHours(WORK_END_HOUR, 0, 0, 0);
-    end.setHours(WORK_START_HOUR, 0, 0, 0);
-  }
-
-  return { start, end, label: '오버나이트 (퇴근 후)' };
 }
 
 type RangeMode = 'overnight' | 'today';
