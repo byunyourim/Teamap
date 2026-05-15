@@ -69,6 +69,13 @@ export default function DashboardPage({ onNavigate, bell, notifications }: Props
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [repoFilter, setRepoFilter] = useState<string[]>(getAssignedRepos());
 
+  const overnightNotif = notifications.find(
+    (n) => n.type === 'overnight-briefing' && !n.read,
+  );
+  const overnightCount = overnightNotif
+    ? parseInt(overnightNotif.comment.replace('overnight:', ''), 10)
+    : 0;
+
   useEffect(() => {
     const q = query(collection(db, 'events'));
     const unsub = onSnapshot(q, (snap) => {
@@ -171,6 +178,62 @@ export default function DashboardPage({ onNavigate, bell, notifications }: Props
           {bell}
         </div>
       </div>
+
+      {overnightNotif && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 20px',
+          background: 'rgba(59,130,246,0.08)',
+          borderBottom: '1px solid rgba(59,130,246,0.2)',
+          fontSize: 13,
+        }}>
+          <span style={{ fontSize: 15 }}>🌙</span>
+          <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+            오버나이트 브리핑 —{' '}
+            <span style={{ color: 'var(--danger)', fontWeight: 700 }}>
+              {overnightCount}건
+            </span>{' '}
+            에러 발생
+          </span>
+          <button
+            onClick={() => {
+              markAsRead(overnightNotif.id);
+              onNavigate('daily-report');
+            }}
+            style={{
+              marginLeft: 4,
+              padding: '4px 12px',
+              fontSize: 12,
+              fontWeight: 600,
+              background: 'var(--accent)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            확인하기 →
+          </button>
+          <button
+            onClick={() => markAsRead(overnightNotif.id)}
+            style={{
+              marginLeft: 'auto',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              fontSize: 16,
+              lineHeight: 1,
+              padding: '2px 4px',
+            }}
+            title="닫기"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 28px', maxWidth: 1200 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
