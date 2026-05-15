@@ -25,6 +25,48 @@ interface ErrorGroup {
   levelCounts: Record<string, number>;
 }
 
+interface CategoryGroup {
+  category: string;
+  errors: ParsedError[];
+  services: ErrorGroup[];
+}
+
+const CATEGORY_LABEL: Record<string, string> = {
+  FE: '프론트엔드',
+  BE: '백엔드',
+  BC: '블록체인',
+};
+
+function groupByCategory(errors: ParsedError[]): CategoryGroup[] {
+  const ORDER = ['FE', 'BE', 'BC', '기타'];
+  const map = new Map<string, ParsedError[]>();
+  for (const e of errors) {
+    const key = e.category ?? '기타';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(e);
+  }
+  return ORDER
+    .filter((k) => map.has(k))
+    .map((category) => {
+      const errs = map.get(category)!;
+      const svcMap = new Map<string, ParsedError[]>();
+      for (const e of errs) {
+        const svc = e.service || '(unknown)';
+        if (!svcMap.has(svc)) svcMap.set(svc, []);
+        svcMap.get(svc)!.push(e);
+      }
+      const services = [...svcMap.entries()].map(([service, serrs]) => {
+        const levelCounts: Record<string, number> = {};
+        for (const e of serrs) {
+          const l = (e.level ?? 'UNKNOWN').toUpperCase();
+          levelCounts[l] = (levelCounts[l] ?? 0) + 1;
+        }
+        return { service, errors: serrs, levelCounts };
+      }).sort((a, b) => b.errors.length - a.errors.length);
+      return { category, errors: errs, services };
+    });
+}
+
 function groupByService(errors: ParsedError[]): ErrorGroup[] {
   const map = new Map<string, ParsedError[]>();
   for (const e of errors) {
@@ -120,6 +162,8 @@ export default function DailyReportPage({ bell, back }: { bell?: React.ReactNode
   };
 
   const groups = groupByService(errors);
+  const categoryGroups = groupByCategory(errors);
+  const hasCategoryData = errors.some((e) => e.category);
   const totalErrors = errors.length;
   const levelTotals: Record<string, number> = {};
   for (const e of errors) {
@@ -267,15 +311,38 @@ export default function DailyReportPage({ bell, back }: { bell?: React.ReactNode
                     )}
                   </div>
 
-                  {/* 서비스별 에러 현황 */}
-                  <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                      서비스별 에러 현황
+                  {/* 카테고리별 에러 현황 */}
+                  {hasCategoryData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {categoryGroups.map((cg) => (
+                        <div key={cg.category} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                              background: cg.category === 'FE' ? 'rgba(139,92,246,0.15)' : cg.category === 'BE' ? 'rgba(59,130,246,0.15)' : cg.category === 'BC' ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.15)',
+                              color: cg.category === 'FE' ? '#a78bfa' : cg.category === 'BE' ? 'var(--accent)' : cg.category === 'BC' ? 'var(--warning)' : 'var(--text-muted)',
+                            }}>{cg.category}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                              {CATEGORY_LABEL[cg.category] ?? cg.category}
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--danger)', marginLeft: 'auto', fontWeight: 600 }}>{cg.errors.length}건</span>
+                          </div>
+                          {cg.services.map((g) => (
+                            <ServiceRow key={g.service} group={g} total={cg.errors.length} />
+                          ))}
+                        </div>
+                      ))}
                     </div>
-                    {groups.map((g) => (
-                      <ServiceRow key={g.service} group={g} total={totalErrors} />
-                    ))}
-                  </div>
+                  ) : (
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                        서비스별 에러 현황
+                      </div>
+                      {groups.map((g) => (
+                        <ServiceRow key={g.service} group={g} total={totalErrors} />
+                      ))}
+                    </div>
+                  )}
 
                   {/* 에러 목록 */}
                   <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>

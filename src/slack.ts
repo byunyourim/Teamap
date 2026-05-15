@@ -166,6 +166,7 @@ export async function testConnection(): Promise<{ ok: true; channelName: string 
  */
 export interface ParsedError {
   service: string;
+  category?: 'FE' | 'BE' | 'BC';
   component: string;
   summary: string;
   level?: string;
@@ -215,11 +216,20 @@ export function parseError(msg: SlackMessage): ParsedError | null {
   const headerMatch = lines[0].match(headerRe);
 
   let service = '';
+  let category: ParsedError['category'];
   let component = '';
   let summary = lines[0];
   let levelFromHeader: string | undefined;
 
-  if (headerMatch) {
+  // Logstash 형식: *[BC]* service-name (구분자 없음, 카테고리 태그)
+  const logstashRe = /^\[(BC|FE|BE)\]\s+(.+)$/;
+  const logstashMatch = lines[0].match(logstashRe);
+
+  if (logstashMatch) {
+    category = logstashMatch[1] as ParsedError['category'];
+    service = logstashMatch[2].trim();
+    summary = ''; // fields.results에서 추출
+  } else if (headerMatch) {
     const bracket = headerMatch[1].trim();
     const after = headerMatch[2].trim();
     summary = headerMatch[3].trim();
@@ -245,8 +255,9 @@ export function parseError(msg: SlackMessage): ParsedError | null {
 
   return {
     service,
+    category,
     component,
-    summary,
+    summary: summary || fields.results || lines[0],
     level: fields.level ?? levelFromHeader,
     chainId: fields.chainid,
     txHash: fields.txhash,
