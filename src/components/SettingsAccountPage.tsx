@@ -3,6 +3,7 @@ import { Check, Loader2 } from 'lucide-react';
 import {
   getUsername, setUsername,
   getAssignedRepos, setAssignedRepos,
+  getSlackDmUserId, setSlackDmUserId,
 } from '../store';
 import { getToken, setToken, fetchReposWithPermissions, type RepoWithPermission } from '../github';
 import {
@@ -43,6 +44,7 @@ export default function SettingsAccountPage({ bell, back }: { bell?: React.React
 
   const [slackToken, setSlackTokenVal] = useState(getSlackToken());
   const [slackChannel, setSlackChannelVal] = useState(getSlackChannel());
+  const [slackDmUserId, setSlackDmUserIdVal] = useState(getSlackDmUserId());
   const [slackTesting, setSlackTesting] = useState(false);
   const [slackResult, setSlackResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -83,6 +85,7 @@ export default function SettingsAccountPage({ bell, back }: { bell?: React.React
     setToken(token.trim());
     setSlackToken(slackToken.trim());
     setSlackChannel(slackChannel.trim());
+    setSlackDmUserId(slackDmUserId.trim());
     setAnthropicKey(anthropicKey.trim());
     setGeminiKey(geminiKey.trim());
     setProvider(provider);
@@ -243,6 +246,18 @@ export default function SettingsAccountPage({ bell, back }: { bell?: React.React
                 />
                 <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
                   Slack 채널 우클릭 → "Copy link" → URL 끝의 ID
+                </p>
+              </div>
+              <div>
+                <label style={labelStyle}>내 Slack 유저 ID <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}>(오버나이트 브리핑 DM)</span></label>
+                <input
+                  style={{ ...inputStyle, fontFamily: 'monospace' }}
+                  placeholder="U0123ABCDEF"
+                  value={slackDmUserId}
+                  onChange={(e) => setSlackDmUserIdVal(e.target.value)}
+                />
+                <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                  Slack 프로필 → 더보기 → 멤버 ID 복사 (U로 시작)
                 </p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

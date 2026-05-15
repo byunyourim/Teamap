@@ -293,6 +293,12 @@ export async function postSlackMessage(text: string): Promise<void> {
   await window.teamap.slack.postMessage({ token, channel, text });
 }
 
+export async function postSlackDM(userId: string, text: string): Promise<void> {
+  const token = getSlackToken();
+  if (!token || !userId || !window.teamap) return;
+  await window.teamap.slack.postMessage({ token, channel: userId, text });
+}
+
 /** chainId가 숫자면 사람이 읽기 쉬운 이름으로 변환 */
 export function chainName(chainId: string | undefined): string | undefined {
   if (!chainId) return undefined;

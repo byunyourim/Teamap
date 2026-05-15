@@ -1,6 +1,7 @@
 import { fetchAllIssues, fetchMyLogin, getToken } from './github';
 import { createStaleIssueNotifications, createOvernightBriefingNotification } from './notifications';
-import { fetchHistory, parseError, getOvernightRange, getSlackToken, getSlackChannel } from './slack';
+import { fetchHistory, parseError, getOvernightRange, getSlackToken, getSlackChannel, postSlackDM } from './slack';
+import { getSlackDmUserId } from './store';
 
 const STALE_DAYS = 14;
 const STORAGE_KEY = 'stale_notif_last_run';
@@ -77,6 +78,21 @@ async function runOvernightCheck(ghLogin: string): Promise<void> {
       .filter((p) => parseFloat(p.ts) <= endTs);
 
     await createOvernightBriefingNotification(ghLogin, errors.length);
+
+    const dmUserId = getSlackDmUserId();
+    if (dmUserId) {
+      const top = [...errors]
+        .sort((a, b) => (b.service ?? '').localeCompare(a.service ?? ''))
+        .slice(0, 3)
+        .map((e) => `• [${e.level ?? '?'}] ${e.service ?? ''} — ${e.summary}`)
+        .join('\n');
+      const dateStr = start.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+      const text = errors.length === 0
+        ? `✅ 오버나이트 이상 없음 (${dateStr})`
+        : `🌙 오버나이트 브리핑 (${dateStr})\n에러 *${errors.length}건* 발생\n${top}${errors.length > 3 ? `\n외 ${errors.length - 3}건 더...` : ''}`;
+      await postSlackDM(dmUserId, text).catch(() => {});
+    }
+
     localStorage.setItem(OVERNIGHT_KEY, todayStr());
   } catch {
     // Slack 미설정 또는 네트워크 오류 — 조용히 실패

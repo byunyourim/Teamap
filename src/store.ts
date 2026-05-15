@@ -7,6 +7,15 @@ const CONTRACTS_KEY = 'teamap_assigned_contracts';
 const WALLETS_KEY = 'teamap_assigned_wallets';
 const WALLET_GAS_THRESHOLD_KEY = 'teamap_wallet_gas_threshold';
 const DEP_CHAIN_KEY = 'teamap_service_dep_chain';
+const SLACK_DM_USER_KEY = 'slack_dm_user_id';
+
+export function getSlackDmUserId(): string {
+  return localStorage.getItem(SLACK_DM_USER_KEY) ?? '';
+}
+
+export function setSlackDmUserId(id: string) {
+  localStorage.setItem(SLACK_DM_USER_KEY, id);
+}
 
 export interface ChainAddress {
   chain: string;
