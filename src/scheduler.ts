@@ -1,7 +1,6 @@
 import { fetchAllIssues, fetchMyLogin, getToken } from './github';
-import { createStaleIssueNotifications } from './notifications';
+import { createStaleIssueNotifications, createOvernightBriefingNotification } from './notifications';
 import { fetchHistory, parseError, getOvernightRange, getSlackToken, getSlackChannel } from './slack';
-import { createOvernightBriefingNotification } from './notifications';
 
 const STALE_DAYS = 14;
 const STORAGE_KEY = 'stale_notif_last_run';

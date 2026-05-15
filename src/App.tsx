@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import Toast from './components/Toast';
-import NotificationBell from './components/NotificationBell';
 import { subscribeNotifications, type AppNotification } from './notifications';
 import { startStaleIssueScheduler, startOvernightBriefingScheduler } from './scheduler';
-import { getToken } from './github';
-import { fetchMyLogin } from './github';
+import { getToken, fetchMyLogin } from './github';
 import './App.css';
 
 function App() {
