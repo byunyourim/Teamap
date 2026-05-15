@@ -317,17 +317,15 @@ export function getOvernightRange(): OvernightRange {
   const now = new Date();
   const end = new Date(now);
 
-  let start: Date;
-  if (now.getHours() < WORK_START_HOUR) {
-    start = new Date(now);
-    start.setDate(start.getDate() - 1);
-    start.setHours(WORK_END_HOUR, 0, 0, 0);
-  } else {
-    start = new Date(now);
-    start.setDate(start.getDate() - 1);
-    start.setHours(WORK_END_HOUR, 0, 0, 0);
+  // start is always yesterday 18:00 regardless of branch
+  const start = new Date(now);
+  start.setDate(start.getDate() - 1);
+  start.setHours(WORK_END_HOUR, 0, 0, 0);
+
+  // Before work start: end = now (still overnight)
+  // After work start: end = today 09:00
+  if (now.getHours() >= WORK_START_HOUR) {
     end.setHours(WORK_START_HOUR, 0, 0, 0);
-    end.setSeconds(0, 0);
   }
 
   return { start, end, label: '오버나이트 (퇴근 후)' };

@@ -10,29 +10,35 @@ describe('getOvernightRange', () => {
     vi.useRealTimers();
   });
 
-  it('출근 전(08:00)에는 어젯밤 18시 ~ 지금까지', () => {
-    vi.setSystemTime(new Date('2026-05-15T08:00:00'));
+  it('출근 전(08:30)에는 start=어젯밤 18시, end=지금', () => {
+    // Use local time constructor to avoid timezone issues
+    vi.setSystemTime(new Date(2026, 4, 15, 8, 30, 0)); // May 15, 08:30 local
     const { start, end } = getOvernightRange();
-    expect(start.getFullYear()).toBe(2026);
-    expect(start.getMonth()).toBe(4); // 0-based (5월)
-    expect(start.getDate()).toBe(14); // 전날
+    expect(start.getDate()).toBe(14); // 전날 (May 14)
     expect(start.getHours()).toBe(18);
-    expect(end.getHours()).toBe(8); // 지금 (출근 전이므로)
-  });
-
-  it('출근 후(10:00)에는 어젯밤 18시 ~ 오늘 9시까지', () => {
-    vi.setSystemTime(new Date('2026-05-15T10:00:00'));
-    const { start, end } = getOvernightRange();
-    expect(start.getDate()).toBe(14); // 전날
-    expect(start.getHours()).toBe(18);
-    expect(end.getHours()).toBe(9); // 오늘 9시
+    expect(start.getMinutes()).toBe(0);
+    expect(start.getSeconds()).toBe(0);
+    // end = now (08:30)
     expect(end.getDate()).toBe(15);
+    expect(end.getHours()).toBe(8);
+    expect(end.getMinutes()).toBe(30);
   });
 
-  it('label 필드를 반환한다', () => {
-    vi.setSystemTime(new Date('2026-05-15T10:00:00'));
+  it('출근 후(10:00)에는 start=어젯밤 18시, end=오늘 09:00', () => {
+    vi.setSystemTime(new Date(2026, 4, 15, 10, 0, 0)); // May 15, 10:00 local
+    const { start, end } = getOvernightRange();
+    expect(start.getDate()).toBe(14); // 전날
+    expect(start.getHours()).toBe(18);
+    expect(start.getMinutes()).toBe(0);
+    expect(end.getDate()).toBe(15);
+    expect(end.getHours()).toBe(9);
+    expect(end.getMinutes()).toBe(0);
+    expect(end.getSeconds()).toBe(0);
+  });
+
+  it('label은 오버나이트 (퇴근 후)를 반환한다', () => {
+    vi.setSystemTime(new Date(2026, 4, 15, 10, 0, 0));
     const { label } = getOvernightRange();
-    expect(typeof label).toBe('string');
-    expect(label.length).toBeGreaterThan(0);
+    expect(label).toBe('오버나이트 (퇴근 후)');
   });
 });
