@@ -200,8 +200,9 @@ function stripSlackMarkdown(text: string): string {
 }
 
 export function parseError(msg: SlackMessage): ParsedError | null {
-  // Slack 시스템 메시지 (채널 참여, 퇴장 등) 필터링
-  if (msg.subtype) return null;
+  // Slack 시스템 메시지 (채널 참여, 퇴장 등) 필터링 — bot_message는 제외
+  const SYSTEM_SUBTYPES = ['channel_join', 'channel_leave', 'channel_purpose', 'channel_topic', 'channel_name'];
+  if (msg.subtype && SYSTEM_SUBTYPES.includes(msg.subtype)) return null;
 
   const rawText = (msg.text ?? '') || (msg.attachments?.map((a) => `${a.title ?? ''}\n${a.text ?? ''}`).join('\n') ?? '');
   if (!rawText) return null;
