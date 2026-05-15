@@ -1,11 +1,11 @@
-import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, getDocs, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
 
 export interface AppNotification {
   id: string;
   to: string;
   from: string;
-  type: 'mention' | 'stale-issue';
+  type: 'mention' | 'stale-issue' | 'overnight-briefing';
   issueTitle: string;
   repo: string;
   issueNumber: number;
@@ -80,6 +80,36 @@ export async function createStaleIssueNotifications(
       })
     )
   );
+}
+
+export async function createOvernightBriefingNotification(
+  to: string,
+  errorCount: number,
+): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const q = query(
+    collection(db, 'notifications'),
+    where('type', '==', 'overnight-briefing'),
+    where('to', '==', to),
+  );
+  const snap = await getDocs(q);
+  const alreadyExists = snap.docs.some((d) =>
+    (d.data().createdAt as string).startsWith(today)
+  );
+  if (alreadyExists) return;
+
+  await addDoc(collection(db, 'notifications'), {
+    to,
+    from: to,
+    type: 'overnight-briefing',
+    issueTitle: '오버나이트 브리핑',
+    repo: '',
+    issueNumber: 0,
+    comment: `overnight:${errorCount}`,
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
 }
 
 export async function markAsRead(notifId: string) {

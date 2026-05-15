@@ -42,3 +42,22 @@ describe('getOvernightRange', () => {
     expect(label).toBe('오버나이트 (퇴근 후)');
   });
 });
+
+describe('AppNotification overnight-briefing type', () => {
+  it('overnight-briefing 타입이 AppNotification에 허용된다', () => {
+    const notif: import('./notifications').AppNotification = {
+      id: 'test-id',
+      to: 'user1',
+      from: 'user1',
+      type: 'overnight-briefing',
+      issueTitle: '오버나이트 브리핑',
+      repo: '',
+      issueNumber: 0,
+      comment: 'overnight:42',
+      read: false,
+      createdAt: new Date().toISOString(),
+    };
+    expect(notif.type).toBe('overnight-briefing');
+    expect(notif.comment).toBe('overnight:42');
+  });
+});
