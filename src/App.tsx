@@ -4,7 +4,7 @@ import MainContent from './components/MainContent';
 import Toast from './components/Toast';
 import NotificationBell from './components/NotificationBell';
 import { subscribeNotifications, type AppNotification } from './notifications';
-import { startStaleIssueScheduler } from './scheduler';
+import { startStaleIssueScheduler, startOvernightBriefingScheduler } from './scheduler';
 import { getToken } from './github';
 import { fetchMyLogin } from './github';
 import './App.css';
@@ -62,7 +62,11 @@ function App() {
   useEffect(() => {
     if (!ghLogin) return;
     const unsub = subscribeNotifications(ghLogin, setNotifications);
-    return unsub;
+    const stopOvernight = startOvernightBriefingScheduler(ghLogin);
+    return () => {
+      unsub();
+      stopOvernight();
+    };
   }, [ghLogin]);
 
   useEffect(() => {
