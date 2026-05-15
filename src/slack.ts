@@ -81,6 +81,7 @@ export interface SlackMessage {
   user?: string;
   username?: string;
   text: string;
+  subtype?: string;
   thread_ts?: string;
   reply_count?: number;
   bot_id?: string;
@@ -199,6 +200,9 @@ function stripSlackMarkdown(text: string): string {
 }
 
 export function parseError(msg: SlackMessage): ParsedError | null {
+  // Slack 시스템 메시지 (채널 참여, 퇴장 등) 필터링
+  if (msg.subtype) return null;
+
   const rawText = (msg.text ?? '') || (msg.attachments?.map((a) => `${a.title ?? ''}\n${a.text ?? ''}`).join('\n') ?? '');
   if (!rawText) return null;
 
