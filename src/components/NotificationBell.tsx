@@ -42,20 +42,36 @@ export default function NotificationBell({ notifications }: Props) {
             {notifications.length === 0 ? (
               <p className="notif-dropdown-empty">알림이 없습니다.</p>
             ) : (
-              notifications.slice(0, 15).map((n) => (
-                <div
-                  key={n.id}
-                  className={`notif-dropdown-item ${n.read ? '' : 'notif-unread'}`}
-                  onClick={() => { if (!n.read) markAsRead(n.id); }}
-                >
-                  <div className="notif-item-top">
-                    <span className="notif-item-from">@{n.from}</span>
-                    <span className="notif-item-date">{formatDate(n.createdAt)}</span>
+              notifications.slice(0, 15).map((n) => {
+                const isOvernight = n.type === 'overnight-briefing';
+                const overnightCount = isOvernight
+                  ? parseInt(n.comment.replace('overnight:', ''), 10)
+                  : 0;
+                return (
+                  <div
+                    key={n.id}
+                    className={`notif-dropdown-item ${n.read ? '' : 'notif-unread'}`}
+                    onClick={() => { if (!n.read) markAsRead(n.id); }}
+                  >
+                    <div className="notif-item-top">
+                      <span className="notif-item-from">
+                        {isOvernight ? '🌙 오버나이트 브리핑' : `@${n.from}`}
+                      </span>
+                      <span className="notif-item-date">{formatDate(n.createdAt)}</span>
+                    </div>
+                    {isOvernight ? (
+                      <div className="notif-item-issue" style={{ color: 'var(--danger)' }}>
+                        {overnightCount}건 에러 발생
+                      </div>
+                    ) : (
+                      <>
+                        <div className="notif-item-issue">{n.issueTitle} #{n.issueNumber}</div>
+                        <div className="notif-item-comment">{n.comment}</div>
+                      </>
+                    )}
                   </div>
-                  <div className="notif-item-issue">{n.issueTitle} #{n.issueNumber}</div>
-                  <div className="notif-item-comment">{n.comment}</div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
