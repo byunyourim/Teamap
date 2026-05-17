@@ -46,6 +46,10 @@ interface ElectronBridge {
   rpc: {
     getTx: (params: { rpcUrl: string; txHash: string }) => Promise<{ tx: RpcTransaction | null; receipt: RpcReceipt | null }>;
   };
+  notifications: {
+    show: (params: { title: string; body: string; navigateTo?: string }) => Promise<{ ok: boolean; error?: string }>;
+  };
+  onNavigate: (callback: (target: string) => void) => () => void;
 }
 
 // RPC 타입은 @stablecoin/ops로 이전

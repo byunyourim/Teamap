@@ -2,9 +2,15 @@ import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import Toast from './components/Toast';
-import { subscribeNotifications, type AppNotification } from './notifications';
+import { subscribeNotifications, showOsNotification, type AppNotification } from './notifications';
 import { startStaleIssueScheduler, startOvernightBriefingScheduler } from './scheduler';
 import { getToken, fetchMyLogin } from './github';
+import {
+  subscribeMorningReports,
+  setLastSeenCreatedAt,
+  formatNotificationTitle,
+  formatNotificationBody,
+} from './morningReports';
 import './App.css';
 
 function App() {
@@ -70,6 +76,30 @@ function App() {
   useEffect(() => {
     const timer = startStaleIssueScheduler();
     return () => clearInterval(timer);
+  }, []);
+
+  // morningBugReports 구독 + 신규 도착 시 OS 알림
+  useEffect(() => {
+    const unsub = subscribeMorningReports(
+      () => { /* 페이지에서 직접 구독하므로 여기는 사이드이펙트 없음 */ },
+      (report) => {
+        showOsNotification(
+          formatNotificationTitle(report),
+          formatNotificationBody(report),
+          { navigateTo: 'morning-report' },
+        );
+        setLastSeenCreatedAt(report.createdAt);
+      },
+    );
+    return () => unsub();
+  }, []);
+
+  // Electron 알림 클릭 → 페이지 이동
+  useEffect(() => {
+    const off = window.teamap?.onNavigate?.((target) => {
+      if (typeof target === 'string') select(target);
+    });
+    return () => { if (off) off(); };
   }, []);
 
   return (

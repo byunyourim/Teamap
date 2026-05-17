@@ -19,6 +19,7 @@ import {
   Wallet,
   Siren,
   Rocket,
+  Bug,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -59,6 +60,7 @@ const sections: Section[] = [
     icon: Settings,
     items: [
       { id: 'error-logs', label: '에러 로그', icon: AlertCircle },
+      { id: 'morning-report', label: '아침 버그 리포트', icon: Bug },
       { id: 'daily-report', label: '일간 리포트', icon: BarChart3 },
       { id: 'incidents', label: '인시던트', icon: Siren },
       { id: 'deployments', label: '배포 트래킹', icon: Rocket },

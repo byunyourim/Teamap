@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, net, shell, Notification } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
@@ -7,6 +7,8 @@ import { ai as opsAi } from '@stablecoin/ops';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
+
+let mainWindow = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -19,6 +21,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
+
+  mainWindow = win;
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
 
   // 새 창 열기 요청을 시스템 브라우저로 리다이렉트
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -36,6 +41,26 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 }
+
+/* ─── OS 알림 ─── */
+ipcMain.handle('notifications:show', async (_e, { title, body, navigateTo }) => {
+  if (!Notification.isSupported()) return { ok: false, error: 'unsupported' };
+  const n = new Notification({
+    title: String(title ?? ''),
+    body: String(body ?? ''),
+    silent: false,
+  });
+  n.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (navigateTo) mainWindow.webContents.send('app:navigate', String(navigateTo));
+    }
+  });
+  n.show();
+  return { ok: true };
+});
 
 function slackFetch(token, path, query = {}) {
   return new Promise((resolve, reject) => {

@@ -115,3 +115,27 @@ export async function createOvernightBriefingNotification(
 export async function markAsRead(notifId: string) {
   await updateDoc(doc(db, 'notifications', notifId), { read: true });
 }
+
+/**
+ * OS 시스템 알림을 표시한다.
+ * Electron 환경이면 메인 프로세스의 Notification API(IPC)로,
+ * 아니면 브라우저 Notification API로 fallback.
+ */
+export async function showOsNotification(
+  title: string,
+  body: string,
+  opts: { navigateTo?: string } = {},
+): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (window.teamap?.notifications) {
+    try {
+      await window.teamap.notifications.show({ title, body, navigateTo: opts.navigateTo });
+      return;
+    } catch {
+      // fallback below
+    }
+  }
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, { body }); } catch { /* ignore */ }
+  }
+}

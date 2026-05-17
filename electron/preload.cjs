@@ -16,4 +16,12 @@ contextBridge.exposeInMainWorld('teamap', {
   rpc: {
     getTx: (params) => ipcRenderer.invoke('rpc:getTx', params),
   },
+  notifications: {
+    show: (params) => ipcRenderer.invoke('notifications:show', params),
+  },
+  onNavigate: (callback) => {
+    const listener = (_e, target) => callback(target);
+    ipcRenderer.on('app:navigate', listener);
+    return () => ipcRenderer.removeListener('app:navigate', listener);
+  },
 });
