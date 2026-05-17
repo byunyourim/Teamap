@@ -95,23 +95,23 @@ orchestrator가 요청을 분류하는 기준.
 
 ---
 
-## StableCoin_OPS 특화 판단표
+## Teamap 특화 판단표
 
 | 요청 예시 | 분류 |
 |----------|------|
-| "MCP 도구 추가해줘" | feature |
-| "HTTP 라우트 추가해줘" | feature |
-| "새 체인 추가해줘" | feature |
-| "환경변수 추가해줘" | feature + config-propagation-checker |
-| "파서 버그 고쳐줘" | quick-fix |
-| "AI 프롬프트 바꿔줘" | quick-fix |
-| "파일 분리해줘" | refactor |
-| "API 키 처리 바꿔줘" | security-sensitive |
-| "외부 입력 검증 추가해줘" | security-sensitive |
-| "n8n 클라이언트 메서드 추가해줘" | feature |
-| "MCP 도구 삭제해줘" | delete (영향도 분석 필수) |
-| "HTTP 라우트 제거해줘" | delete (영향도 분석 필수) |
-| "이 함수 어떻게 동작해?" | 스킬 직접 사용 (code-explainer) |
+| "React 컴포넌트 추가해줘" / "새 페이지 만들어줘" | feature (react-component-builder 자동 호출) |
+| "Firestore 컬렉션 추가/스키마 변경" | feature (incident-firebase-domain 자동 호출) |
+| "Etherscan/RPC 조회 추가" / "체인 모니터링 추가" | feature (onchain-integrator 자동 호출) |
+| "Electron IPC 핸들러 추가" | security-sensitive (electron-security-reviewer 자동 호출) |
+| "preload에 API 노출" | security-sensitive |
+| "API 키/토큰 저장 로직 변경" | security-sensitive |
+| "BrowserWindow 옵션 변경" | security-sensitive |
+| "UI 스타일 한 줄 변경" | quick-fix |
+| "cron 표현식 파싱 버그" | quick-fix |
+| "Firestore 쿼리 최적화" | refactor |
+| "컴포넌트 분리" / "lib 함수 추출" | refactor |
+| "IPC 핸들러 삭제" / "Firestore 컬렉션 제거" | delete (영향도 분석 필수) |
+| "이 컴포넌트 어떻게 동작해?" | 스킬 직접 사용 (code-explainer) |
 | "이 코드 검증해줘" | 스킬 직접 사용 (review-pr) |
 
 ---
