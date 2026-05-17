@@ -1,6 +1,6 @@
 import type { ParsedError } from './slack';
 import type { CodeSearchHit } from './github';
-import { searchCode } from './github';
+import { searchCode, fetchFileContentWithMatch } from './github';
 import { getServiceDepChain, repoToService, getRelatedServices } from './store';
 
 const ANTHROPIC_KEY = 'anthropic_api_key';
@@ -39,17 +39,21 @@ export function setGeminiKey(v: string) {
 }
 
 const SYSTEM_PROMPT = `당신은 블록체인 서비스 시니어 백엔드 엔지니어입니다.
-주어진 에러 로그와 GitHub 코드 검색 결과를 보고, **에러가 던져진 정확한 위치**를 찾아내는 게 임무입니다.
+주어진 에러 로그와 GitHub 코드 컨텍스트(매치 위치 ± 15줄)를 분석해
+**에러가 던져진 정확한 위치**를 찾는 게 임무입니다.
+
+각 후보 파일에는 "> 1234: code" 형식의 라인 번호가 매겨진 코드가 포함됩니다.
+"> " 표시가 키워드가 직접 매치된 라인입니다. 그 주변 코드를 함께 보고 함수명/조건문을 추출하세요.
 
 응답 형식 (마크다운):
 
 ## 에러 지점
 - **파일**: \`path/to/file.ts\` (라인 N)
 - **GitHub**: <전달받은 코드 검색 결과의 url>
-- **함수**: \`functionName()\` (있으면)
+- **함수**: \`functionName()\`
 
 ## 추정 원인
-1-3문장. 어떤 조건에서 이 에러가 던져지는지 코드 기반으로 설명.
+1-3문장. 매치된 코드 라인을 인용하며 어떤 조건에서 이 에러가 던져지는지 설명.
 
 ## 빠른 점검
 - [ ] 즉시 확인할 항목 1
@@ -57,8 +61,9 @@ const SYSTEM_PROMPT = `당신은 블록체인 서비스 시니어 백엔드 엔�
 - [ ] (필요 시) 3-4
 
 규칙:
-- 코드 검색 결과 중 가장 가능성 높은 한 곳만 찍어줄 것 (확신 없으면 "후보:" 형태로 2개)
-- 검색 결과에 일치하는 게 없으면 "코드에서 정확한 위치 미발견"이라고 명시
+- "> " 표시된 매치 라인을 우선 평가
+- 가장 가능성 높은 한 곳을 라인 번호와 함께 찍을 것 (확신 없으면 "후보:" 형태로 2개)
+- 코드 컨텍스트에 일치하는 게 없으면 "코드에서 정확한 위치 미발견" 명시
 - 한국어, 5-10줄 이내, 간결하게`;
 
 const CHAIN_SYSTEM_PROMPT = `당신은 블록체인 서비스 시니어 백엔드 엔지니어입니다.
@@ -153,20 +158,51 @@ export function collectRelatedErrors(
   });
 }
 
+/** 너무 일반적이라 검색 신호로 안 쓰는 단어들 */
+const COMMON_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'to', 'of', 'in', 'on', 'at', 'for', 'with', 'by', 'from', 'as', 'into',
+  'error', 'failed', 'fail', 'failure', 'exception', 'occurred',
+  'and', 'or', 'not', 'no', 'yes', 'true', 'false', 'null', 'undefined',
+  'this', 'that', 'these', 'those', 'it', 'its',
+]);
+
+/** 텍스트에서 핵심 영문 키워드 추출 (4자 이상, 흔한 단어 제외) */
+function extractKeywords(text: string): string[] {
+  return text
+    .replace(/[^a-zA-Z0-9가-힣 _-]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !COMMON_WORDS.has(w.toLowerCase()));
+}
+
 /** 에러에서 검색용 키워드 후보를 추출
- *  우선순위: summary > 첫번째 라인의 텍스트
+ *  - 정확한 구문 검색은 매칭률이 낮아 짧은 키워드 조합으로 검색
+ *  - 1차: summary 핵심 키워드 5개
+ *  - 2차 폴백: 3개로 줄임
+ *  - 3차: err 필드, 컴포넌트명
  */
 function buildSearchQueries(err: ParsedError): string[] {
   const out: string[] = [];
+
   if (err.summary && err.summary.length >= 6) {
-    // 너무 일반적인 단어 제거하고 핵심 어구만
-    const cleaned = err.summary.replace(/[^a-zA-Z0-9가-힣 _-]/g, ' ').trim();
-    if (cleaned.length >= 6) out.push(cleaned);
+    const keywords = extractKeywords(err.summary);
+    if (keywords.length >= 2) {
+      out.push(keywords.slice(0, 5).join(' '));
+      if (keywords.length > 3) out.push(keywords.slice(0, 3).join(' '));
+    }
   }
+
   if (err.fields.err && err.fields.err.length >= 6) {
-    out.push(err.fields.err.replace(/[^a-zA-Z0-9 _-]/g, ' ').trim());
+    const keywords = extractKeywords(err.fields.err);
+    if (keywords.length >= 2) out.push(keywords.slice(0, 5).join(' '));
   }
-  return out.filter((q, i, a) => a.indexOf(q) === i);
+
+  // 컴포넌트명도 키워드로 — 특정 모듈에 한정해 검색
+  if (err.component && err.component.length >= 4) {
+    out.push(err.component);
+  }
+
+  return out.filter((q, i, a) => q && a.indexOf(q) === i);
 }
 
 export async function searchErrorLocation(err: ParsedError): Promise<CodeSearchHit[]> {
@@ -188,6 +224,21 @@ export async function searchErrorLocation(err: ParsedError): Promise<CodeSearchH
       // 한 쿼리 실패해도 다음 쿼리 시도
     }
   }
+
+  // 상위 3개 후보의 파일 내용에서 매치 위치 ± 컨텍스트 추출 (AI에게 라인 번호 정확히 전달)
+  const topHits = all.slice(0, 3);
+  const keywords = Array.from(new Set(queries.flatMap((q) => q.split(/\s+/)).filter(Boolean)));
+  await Promise.all(
+    topHits.map(async (h) => {
+      try {
+        const matched = await fetchFileContentWithMatch(h.repo, h.path, keywords, 15);
+        if (matched.length > 0) h.matchedLines = matched;
+      } catch {
+        // 파일 가져오기 실패 시 fragments 그대로 사용
+      }
+    }),
+  );
+
   return all.slice(0, 10);
 }
 
@@ -317,6 +368,32 @@ export async function analyzeErrorWithChain(
   return result;
 }
 
+function formatHit(h: CodeSearchHit, index: number): string {
+  const lines: string[] = [];
+  lines.push(`### 후보 ${index + 1}`);
+  lines.push(`파일: ${h.repo}/${h.path}`);
+  lines.push(`URL: ${h.url}`);
+
+  if (h.matchedLines && h.matchedLines.length > 0) {
+    lines.push('');
+    lines.push('매치된 코드 (> 표시가 매치 라인):');
+    for (const m of h.matchedLines) {
+      lines.push('```');
+      lines.push(m.snippet);
+      lines.push('```');
+    }
+  } else if (h.fragments.length > 0) {
+    lines.push('');
+    lines.push('검색 fragment:');
+    for (const f of h.fragments) {
+      lines.push('```');
+      lines.push(f);
+      lines.push('```');
+    }
+  }
+  return lines.join('\n');
+}
+
 function formatPrompt(err: ParsedError, hits: CodeSearchHit[]): string {
   const fieldsText = Object.entries(err.fields)
     .map(([k, v]) => `${k}: ${v}`)
@@ -324,12 +401,7 @@ function formatPrompt(err: ParsedError, hits: CodeSearchHit[]): string {
 
   const hitsText = hits.length === 0
     ? '(검색 결과 없음)'
-    : hits.map((h, i) => (
-        `### 후보 ${i + 1}\n` +
-        `파일: ${h.repo}/${h.path}\n` +
-        `URL: ${h.url}\n` +
-        `매치 컨텍스트:\n${h.fragments.map((f) => '```\n' + f + '\n```').join('\n')}`
-      )).join('\n\n');
+    : hits.map((h, i) => formatHit(h, i)).join('\n\n');
 
   return `# 에러 로그
 서비스: ${err.service || '(알 수 없음)'}
@@ -345,10 +417,10 @@ ${fieldsText}
 ${err.raw}
 \`\`\`
 
-# GitHub 코드 검색 결과
+# GitHub 코드 검색 결과 (상위 후보는 매치 라인 ±15줄 컨텍스트 포함)
 ${hitsText}
 
-위 코드 검색 결과 중 어디서 이 에러가 던져졌는지 찾아주세요.`;
+위 코드 컨텍스트에서 어디서 이 에러가 던져졌는지 찾아주세요. 매치된 라인 번호와 함수명을 정확히 인용해주세요.`;
 }
 
 function formatChainPrompt(
@@ -376,12 +448,7 @@ function formatChainPrompt(
 
   const hitsText = hits.length === 0
     ? '(검색 결과 없음)'
-    : hits.map((h, i) => (
-        `### 후보 ${i + 1}\n` +
-        `파일: ${h.repo}/${h.path}\n` +
-        `URL: ${h.url}\n` +
-        `매치 컨텍스트:\n${h.fragments.map((f) => '```\n' + f + '\n```').join('\n')}`
-      )).join('\n\n');
+    : hits.map((h, i) => formatHit(h, i)).join('\n\n');
 
   return `# 서비스 의존 체인
 ${chainText}

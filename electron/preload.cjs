@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('teamap', {
   ai: {
     analyze: (params) => ipcRenderer.invoke('ai:analyze', params),
     gemini: (params) => ipcRenderer.invoke('ai:gemini', params),
+    claudeReview: (params) => ipcRenderer.invoke('ai:claudeReview', params),
   },
   rpc: {
     getTx: (params) => ipcRenderer.invoke('rpc:getTx', params),

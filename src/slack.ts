@@ -38,33 +38,19 @@ interface ElectronBridge {
       system?: string;
       user: string;
     }) => Promise<{ ok: true; text: string; usage?: unknown }>;
+    claudeReview: (params: {
+      prompt: string;
+      model?: string;
+    }) => Promise<{ ok: true; text: string }>;
   };
   rpc: {
     getTx: (params: { rpcUrl: string; txHash: string }) => Promise<{ tx: RpcTransaction | null; receipt: RpcReceipt | null }>;
   };
 }
 
-export interface RpcTransaction {
-  hash: string;
-  from: string;
-  to: string | null;
-  value: string;
-  gas: string;
-  gasPrice: string;
-  nonce: string;
-  blockNumber: string | null;
-  blockHash: string | null;
-  input: string;
-}
-
-export interface RpcReceipt {
-  status: string;
-  gasUsed: string;
-  effectiveGasPrice: string;
-  blockNumber: string;
-  contractAddress: string | null;
-  logs: { address: string; topics: string[]; data: string }[];
-}
+// RPC 타입은 @stablecoin/ops로 이전
+import type { RpcTransaction, RpcReceipt } from '@stablecoin/ops/client/rpc';
+export type { RpcTransaction, RpcReceipt };
 
 declare global {
   interface Window {
@@ -155,151 +141,22 @@ export async function testConnection(): Promise<{ ok: true; channelName: string 
   }
 }
 
-/** 에러 메시지 파서
- *
- * 예상 포맷:
- *   [bc-adapter] ws-publisher — send failed, max retries exceeded
- *   level: ERROR
- *   chainId   : ETH
- *   txHash    : 0xabc...
- *   retryCount: 3
- *   timestamp : 2026-03-29 23:26:30
- */
-export interface ParsedError {
-  service: string;
-  category?: 'FE' | 'BE' | 'BC';
-  component: string;
-  summary: string;
-  level?: string;
-  chainId?: string;
-  txHash?: string;
-  retryCount?: string;
-  timestamp?: string;
-  fields: Record<string, string>;
-  raw: string;
-  ts: string;
-  threadTs?: string;
-  replyCount?: number;
-}
+// 파서/타입은 @stablecoin/ops로 이전. Teamap은 그대로 import해서 사용.
+export type { ParsedError } from '@stablecoin/ops/types';
+export { parseSlackError as parseError, stripSlackMarkdown } from '@stablecoin/ops/parsers';
 
-/** Slack mrkdwn 정리 — *bold*, _italic_, ```code```, `inline` 등을 일반 텍스트로 */
-function stripSlackMarkdown(text: string): string {
-  return text
-    // ```...``` 코드 블록 → 내용만 남김
-    .replace(/```([\s\S]*?)```/g, (_, inner) => inner)
-    // *text* 굵게
-    .replace(/\*([^*\n]+)\*/g, '$1')
-    // _text_ 기울임
-    .replace(/(?<![A-Za-z0-9])_([^_\n]+)_(?![A-Za-z0-9])/g, '$1')
-    // `text` 인라인 코드
-    .replace(/`([^`\n]+)`/g, '$1')
-    // <http://...|label> → label
-    .replace(/<([^|>]+)\|([^>]+)>/g, '$2')
-    // <http://...> → URL
-    .replace(/<([^>]+)>/g, '$1');
-}
-
-export function parseError(msg: SlackMessage): ParsedError | null {
-  // Slack 시스템 메시지 (채널 참여, 퇴장 등) 필터링 — bot_message는 제외
-  const SYSTEM_SUBTYPES = ['channel_join', 'channel_leave', 'channel_purpose', 'channel_topic', 'channel_name'];
-  if (msg.subtype && SYSTEM_SUBTYPES.includes(msg.subtype)) return null;
-
-  const rawText = (msg.text ?? '') || (msg.attachments?.map((a) => `${a.title ?? ''}\n${a.text ?? ''}`).join('\n') ?? '');
-  if (!rawText) return null;
-
-  const text = stripSlackMarkdown(rawText);
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (lines.length === 0) return null;
-
-  // 다양한 헤더 포맷 지원:
-  //   [bc-adapter] ws-publisher — send failed
-  //   [ERROR] PaymentService - Payment transfer failed
-  //   [ERROR] PaymentService ? Payment transfer failed   (이모지가 ?로 깨진 경우)
-  // 구분자: — – - · ▸ ▶ → > | ? ❓ 🔴 ❌ ⚠️ 등
-  const SEP_CLASS = '[—–\\-·▸▶→>|?❓🔴❌⚠️]';
-  const headerRe = new RegExp(`^\\[([^\\]]+)\\]\\s*(.+?)\\s+${SEP_CLASS}+\\s+(.+)$`);
-  const headerMatch = lines[0].match(headerRe);
-
-  let service = '';
-  let category: ParsedError['category'];
-  let component = '';
-  let summary = lines[0];
-  let levelFromHeader: string | undefined;
-
-  // Logstash 형식: *[BC]* service-name (구분자 없음, 카테고리 태그)
-  const logstashRe = /^\[(BC|FE|BE)\]\s+(.+)$/;
-  const logstashMatch = lines[0].match(logstashRe);
-
-  if (logstashMatch) {
-    category = logstashMatch[1] as ParsedError['category'];
-    service = logstashMatch[2].trim();
-    summary = ''; // fields.results에서 추출
-  } else if (headerMatch) {
-    const bracket = headerMatch[1].trim();
-    const after = headerMatch[2].trim();
-    summary = headerMatch[3].trim();
-
-    // [ERROR] / [WARN] / [INFO] 같은 레벨이 brackets에 들어있으면 그건 level, 그 다음이 service
-    if (/^(error|warn|warning|info|debug|fatal)$/i.test(bracket)) {
-      levelFromHeader = bracket.toUpperCase();
-      service = after;
-      component = '';
-    } else {
-      service = bracket;
-      component = after;
-    }
-  }
-
-  const fields: Record<string, string> = {};
-  for (let i = headerMatch ? 1 : 0; i < lines.length; i++) {
-    const line = lines[i];
-    // key (영문/숫자/_) : value
-    const kv = line.match(/^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.+)$/);
-    if (kv) fields[kv[1].toLowerCase()] = kv[2].trim();
-  }
-
-  return {
-    service,
-    category,
-    component,
-    summary: summary || fields.results || lines[0],
-    level: fields.level ?? levelFromHeader,
-    chainId: fields.chainid,
-    txHash: fields.txhash,
-    retryCount: fields.retrycount,
-    timestamp: fields.timestamp,
-    fields,
-    raw: rawText,
-    ts: msg.ts,
-    threadTs: msg.thread_ts,
-    replyCount: msg.reply_count,
-  };
-}
-
-function explorerBase(chainId: string): string | undefined {
-  const byName: Record<string, string> = {
-    SEPOLIA: 'https://sepolia.etherscan.io',
-    FUJI: 'https://testnet.snowtrace.io',
-    KCP: 'https://explorer-test.avax.network/monthlygol',
-  };
-  const byNumber: Record<string, string> = {
-    '11155111': 'https://sepolia.etherscan.io',
-    '43113':    'https://testnet.snowtrace.io',
-    '56357':    'https://explorer-test.avax.network/monthlygol',
-  };
-  return byNumber[chainId] ?? byName[chainId.toUpperCase()];
-}
+// chain 유틸은 @stablecoin/ops로 이전. Teamap은 기존 호출 시그니처를 유지하도록 어댑터로 위임.
+import { explorerTxUrl as opsTxUrl, explorerAddressUrl as opsAddrUrl } from '@stablecoin/ops';
+export { chainName } from '@stablecoin/ops';
 
 export function explorerUrl(chainId: string | undefined, txHash: string | undefined): string | null {
   if (!chainId || !txHash) return null;
-  const base = explorerBase(chainId);
-  return base ? `${base}/tx/${txHash}` : null;
+  return opsTxUrl(chainId, txHash);
 }
 
 export function explorerAddressUrl(chainId: string | undefined, address: string | undefined): string | null {
   if (!chainId || !address) return null;
-  const base = explorerBase(chainId);
-  return base ? `${base}/address/${address}` : null;
+  return opsAddrUrl(chainId, address);
 }
 
 export async function postSlackMessage(text: string): Promise<void> {
@@ -315,16 +172,6 @@ export async function postSlackDM(userId: string, text: string): Promise<void> {
   await window.teamap.slack.postMessage({ token, channel: userId, text });
 }
 
-/** chainId가 숫자면 사람이 읽기 쉬운 이름으로 변환 */
-export function chainName(chainId: string | undefined): string | undefined {
-  if (!chainId) return undefined;
-  const map: Record<string, string> = {
-    '11155111': 'Sepolia',
-    '43113':    'Fuji',
-    '56357':    'KCP',
-  };
-  return map[chainId] ?? chainId;
-}
 
 const WORK_END_HOUR = 18;
 const WORK_START_HOUR = 9;

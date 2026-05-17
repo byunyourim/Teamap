@@ -187,12 +187,6 @@ export default function ErrorLogPage({ bell, back, onNavigateWith }: {
                     </span>
                   )}
                 </div>
-                <div style={{
-                  fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {e.summary}
-                </div>
                 {(e.fields.results || e.fields.result) && (
                   <div style={{
                     fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4,

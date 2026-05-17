@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import {
   ArrowLeft, Loader2, GitPullRequest, CheckCircle2, XCircle,
   Clock, FileEdit, ExternalLink, GitBranch, Plus, Minus,
-  ChevronDown, ChevronRight, MessageSquare,
+  ChevronDown, ChevronRight, MessageSquare, Sparkles,
 } from 'lucide-react';
 import {
   fetchPRDetail, fetchPRFiles, fetchPRReviewComments,
   fetchIssueComments, fetchUserNames, fetchMyLogin, submitPRReview, addComment,
   type PRDetail, type PRFile, type PRReviewComment, type GitHubComment,
 } from '../github';
+import { getSlackToken, getSlackChannel } from '../slack';
 import { cn } from '@/lib/utils';
 
 function timeAgo(iso: string) {
@@ -89,6 +90,8 @@ export default function PRDetailPage({ repo, prNumber, onBack, bell }: Props) {
   const [myLogin, setMyLogin] = useState('');
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -155,6 +158,65 @@ export default function PRDetailPage({ repo, prNumber, onBack, bell }: Props) {
     }
   };
 
+  const handleClaudeReview = async () => {
+    if (!pr || !window.teamap) return;
+    setReviewing(true);
+    setReviewError(null);
+    try {
+      const diff = files
+        .filter((f) => f.patch)
+        .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
+        .join('\n\n');
+
+      if (!diff) { setReviewError('리뷰할 diff가 없습니다.'); return; }
+
+      const limitedDiff = diff.length > 50000 ? diff.slice(0, 50000) + '\n\n... (truncated)' : diff;
+
+      const prompt = `PR: ${pr.title} #${pr.number}
+브랜치: ${pr.head} → ${pr.base}
+작성자: ${pr.author}
+
+아래 Git diff를 코드리뷰 해줘. 마크다운 형식으로 작성해줘.
+
+리뷰 항목:
+1. **버그 / 로직 오류**: 명백한 버그, 엣지케이스 누락, 잘못된 조건문
+2. **보안**: SQL Injection, XSS, 인증/인가 누락, 민감정보 노출
+3. **타입 안전성**: TypeScript 타입 오용, any 남용, 타입 단언 위험성
+4. **성능**: 불필요한 반복, N+1 쿼리, 메모리 누수 가능성
+5. **코드 품질**: 중복 코드, 명명 규칙, 단일 책임 원칙
+
+심각도 표기: 🔴 Critical / 🟡 Warning / 🟢 Suggestion
+문제가 없으면 "✅ 특이사항 없음" 으로 마무리해줘.
+
+---
+
+${limitedDiff}`;
+
+      const result = await window.teamap.ai.claudeReview({ prompt, model: 'claude-opus-4-7' });
+
+      const comment = `## 🤖 Claude Code Review\n\n**PR:** #${pr.number} | **브랜치:** \`${pr.head}\` → \`${pr.base}\`\n\n---\n\n${result.text}`;
+      await addComment(repo, prNumber, comment);
+
+      const updated = await fetchIssueComments(repo, prNumber);
+      setIssueComments(updated);
+
+      const slackToken = getSlackToken();
+      const slackChannel = getSlackChannel();
+      if (slackToken && slackChannel) {
+        const summary = result.text.slice(0, 500);
+        await window.teamap.slack.postMessage({
+          token: slackToken,
+          channel: slackChannel,
+          text: `🤖 Claude Code Review 완료\nPR: <${pr.url}|${pr.title}> #${pr.number}\n\n${summary}${result.text.length > 500 ? '...' : ''}`,
+        });
+      }
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : '리뷰 실패');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   const toggleFile = (filename: string) => {
     setExpandedFiles((prev) => {
       const next = new Set(prev);
@@ -207,6 +269,23 @@ export default function PRDetailPage({ repo, prNumber, onBack, bell }: Props) {
           <span>PR</span>
         </div>
         <div className="header-actions">
+          {pr.state === 'open' && (
+            <button
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', fontSize: 12, fontWeight: 500, borderRadius: 6,
+                background: reviewing ? '#1e293b' : 'rgba(139,92,246,0.15)',
+                color: reviewing ? '#475569' : '#a78bfa',
+                border: 'none', cursor: reviewing ? 'default' : 'pointer',
+              }}
+              onClick={handleClaudeReview}
+              disabled={reviewing}
+              title="Claude Code로 코드리뷰 후 PR 댓글 등록"
+            >
+              {reviewing ? <Loader2 size={13} className="spinner" /> : <Sparkles size={13} />}
+              {reviewing ? '리뷰 중...' : 'Claude 리뷰'}
+            </button>
+          )}
           {pr.state === 'open' && pr.reviewStatus !== 'approved' && pr.reviewers.includes(myLogin) && (
             <button
               style={{
@@ -227,6 +306,11 @@ export default function PRDetailPage({ repo, prNumber, onBack, bell }: Props) {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 28px', maxWidth: 1200 }}>
+        {reviewError && (
+          <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 6, background: 'rgba(248,113,113,0.1)', color: '#f87171', fontSize: 12 }}>
+            {reviewError}
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* Title & status */}

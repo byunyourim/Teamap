@@ -17,11 +17,26 @@ export function setSlackDmUserId(id: string) {
   localStorage.setItem(SLACK_DM_USER_KEY, id);
 }
 
-export interface ChainAddress {
-  chain: string;
-  address: string;
-  label?: string;
-}
+// 공유 도메인 타입은 @stablecoin/ops에서. Teamap은 re-export로 호환성 유지.
+import type {
+  ChainAddress,
+  Incident,
+  IncidentStatus,
+  IncidentSeverity,
+  IncidentTimelineEntry,
+  Deployment,
+  DeploymentStatus,
+} from '@stablecoin/ops/types';
+
+export type {
+  ChainAddress,
+  Incident,
+  IncidentStatus,
+  IncidentSeverity,
+  IncidentTimelineEntry,
+  Deployment,
+  DeploymentStatus,
+};
 
 export function getUsername(): string {
   return localStorage.getItem(USER_KEY) ?? '';
@@ -192,31 +207,6 @@ export function getRelatedServices(service: string): string[] {
 
 const INCIDENTS_KEY = 'teamap_incidents';
 
-export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
-export type IncidentSeverity = 'sev1' | 'sev2' | 'sev3';
-
-export interface IncidentTimelineEntry {
-  ts: number;
-  type: 'note' | 'status' | 'action' | 'error' | 'deploy' | 'analysis';
-  user: string;
-  message: string;
-}
-
-export interface Incident {
-  id: string;
-  title: string;
-  severity: IncidentSeverity;
-  status: IncidentStatus;
-  createdAt: number;
-  resolvedAt?: number;
-  affectedServices: string[];
-  affectedWallets: string[];
-  affectedContracts: string[];
-  timeline: IncidentTimelineEntry[];
-  postmortem?: string;
-  sourceErrorTs?: string;  // Slack 에러 메시지 ts (있으면)
-}
-
 export function getIncidents(): Incident[] {
   try {
     const v = JSON.parse(localStorage.getItem(INCIDENTS_KEY) ?? '[]');
@@ -246,23 +236,6 @@ export function newIncidentId(): string {
 /* ─── 배포 트래킹 ─── */
 
 const DEPLOYMENTS_KEY = 'teamap_deployments';
-
-export type DeploymentStatus = 'pending' | 'in_progress' | 'success' | 'failed' | 'rolled_back';
-
-export interface Deployment {
-  id: string;
-  service: string;
-  version: string;          // 태그 / 커밋 SHA / PR 번호
-  prNumber?: number;
-  prTitle?: string;
-  repo?: string;
-  environment: 'dev' | 'stage' | 'prod';
-  status: DeploymentStatus;
-  startedAt: number;
-  finishedAt?: number;
-  deployer: string;
-  notes?: string;
-}
 
 export function getDeployments(): Deployment[] {
   try {

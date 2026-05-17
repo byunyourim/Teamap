@@ -13,6 +13,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@stablecoin/ops": "file:../StableCoin_OPS",
     "@tailwindcss/vite": "^4.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

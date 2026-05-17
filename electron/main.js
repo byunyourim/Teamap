@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain, net, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+import * as opsRpc from '@stablecoin/ops/client/rpc';
+import { ai as opsAi } from '@stablecoin/ops';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -110,122 +113,53 @@ ipcMain.handle('slack:postMessage', async (_e, { token, channel, text }) => {
   });
 });
 
-ipcMain.handle('ai:gemini', async (_e, { apiKey, model, system, user }) => {
-  return new Promise((resolve, reject) => {
-    const m = model || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const request = net.request({ method: 'POST', url });
-    request.setHeader('content-type', 'application/json');
-
-    let body = '';
-    request.on('response', (response) => {
-      response.on('data', (chunk) => { body += chunk.toString('utf8'); });
-      response.on('end', () => {
-        try {
-          const parsed = JSON.parse(body);
-          if (parsed.error) {
-            reject(new Error(parsed.error.message || 'Gemini API error'));
-            return;
-          }
-          const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-          resolve({ ok: true, text, usage: parsed.usageMetadata });
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-    request.on('error', reject);
-    request.write(JSON.stringify({
-      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-      contents: [{ role: 'user', parts: [{ text: user }] }],
-    }));
-    request.end();
-  });
+// @stablecoin/ops의 AI 클라이언트 위임
+ipcMain.handle('ai:gemini', async (_e, params) => {
+  const r = await opsAi.callGemini(params);
+  return { ok: true, ...r };
 });
 
-ipcMain.handle('ai:analyze', async (_e, { apiKey, model, system, user }) => {
-  return new Promise((resolve, reject) => {
-    const request = net.request({
-      method: 'POST',
-      url: 'https://api.anthropic.com/v1/messages',
-    });
-    request.setHeader('x-api-key', apiKey);
-    request.setHeader('anthropic-version', '2023-06-01');
-    request.setHeader('content-type', 'application/json');
+ipcMain.handle('ai:analyze', async (_e, params) => {
+  const r = await opsAi.callAnthropic(params);
+  return { ok: true, ...r };
+});
 
-    let body = '';
-    request.on('response', (response) => {
-      response.on('data', (chunk) => { body += chunk.toString('utf8'); });
-      response.on('end', () => {
-        try {
-          const parsed = JSON.parse(body);
-          if (parsed.type === 'error') {
-            reject(new Error(parsed.error?.message || 'Anthropic API error'));
-            return;
-          }
-          const text = parsed.content?.[0]?.text ?? '';
-          resolve({ ok: true, text, usage: parsed.usage });
-        } catch (e) {
-          reject(e);
-        }
-      });
+ipcMain.handle('ai:claudeReview', async (_e, { prompt, model }) => {
+  return new Promise((resolve, reject) => {
+    const args = ['--print', '--model', model || 'claude-opus-4-7', prompt];
+    const proc = spawn('claude', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PATH: (process.env.PATH || '') + ':/usr/local/bin:/opt/homebrew/bin',
+      },
     });
-    request.on('error', reject);
-    request.write(JSON.stringify({
-      model: model || 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system,
-      messages: [{ role: 'user', content: user }],
-    }));
-    request.end();
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+
+    proc.on('close', (code) => {
+      if (code === 0) resolve({ ok: true, text: stdout.trim() });
+      else reject(new Error(stderr.trim() || `Claude 종료 코드: ${code}`));
+    });
+
+    proc.on('error', (err) => {
+      if (err.code === 'ENOENT') {
+        reject(new Error('Claude Code CLI가 설치되지 않았습니다. npm install -g @anthropic-ai/claude-code 후 claude login 하세요.'));
+      } else {
+        reject(new Error(err.message));
+      }
+    });
   });
 });
 
 /* ─── RPC (온체인 조회) ─── */
 
-function rpcFetch(rpcUrl, method, params) {
-  return new Promise((resolve, reject) => {
-    const request = net.request({ method: 'POST', url: rpcUrl });
-    request.setHeader('content-type', 'application/json');
-
-    let body = '';
-    request.on('response', (response) => {
-      const status = response.statusCode;
-      response.on('data', (chunk) => { body += chunk.toString('utf8'); });
-      response.on('end', () => {
-        if (status && status >= 400) {
-          reject(new Error(`RPC 요청 실패 (HTTP ${status}). URL을 확인하세요.`));
-          return;
-        }
-        try {
-          if (!body.trim()) {
-            reject(new Error(`RPC 빈 응답 (HTTP ${status})`));
-            return;
-          }
-          if (body.trimStart().startsWith('<')) {
-            reject(new Error(`RPC가 JSON이 아닌 응답을 반환했습니다 (HTTP ${status}). URL을 확인하세요.`));
-            return;
-          }
-          const parsed = JSON.parse(body);
-          if (parsed.error) reject(new Error(parsed.error.message || 'RPC error'));
-          else resolve(parsed.result);
-        } catch (e) {
-          reject(new Error(`RPC 응답 파싱 실패: ${e.message}`));
-        }
-      });
-    });
-    request.on('error', reject);
-    request.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }));
-    request.end();
-  });
-}
-
+// @stablecoin/ops의 RPC 클라이언트 위임 (메인 프로세스에서 fetch 직접 사용)
 ipcMain.handle('rpc:getTx', async (_e, { rpcUrl, txHash }) => {
-  const [tx, receipt] = await Promise.all([
-    rpcFetch(rpcUrl, 'eth_getTransactionByHash', [txHash]),
-    rpcFetch(rpcUrl, 'eth_getTransactionReceipt', [txHash]),
-  ]);
-  return { tx, receipt };
+  return opsRpc.getTx(rpcUrl, txHash);
 });
 
 app.whenReady().then(createWindow);

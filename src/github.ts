@@ -1,4 +1,7 @@
+import { github as opsGithub, type CodeSearchHit } from '@stablecoin/ops';
+
 const ORG = 'StableCoinTF';
+export type { CodeSearchHit };
 
 export interface GitHubIssue {
   id: number;
@@ -89,67 +92,33 @@ export async function fetchRepos(): Promise<string[]> {
   return repos.map((r) => r.name);
 }
 
-export interface CodeSearchHit {
-  name: string;
-  path: string;
-  repo: string;
-  url: string;            // GitHub blob URL
-  fragments: string[];    // 매치 라인 주변 텍스트
-  score: number;
-}
-
-interface RawCodeSearchItem {
-  name: string;
-  path: string;
-  html_url: string;
-  repository: { name: string; full_name: string };
-  text_matches?: { fragment: string }[];
-  score: number;
-}
-
-/** GitHub 코드 검색 — 조직 전체 레포에서 문자열 검색
- *  Code Search는 별도 헤더(text-match)로 매치 fragment를 받아옴
- */
-export async function searchCode(query: string, limit = 10): Promise<CodeSearchHit[]> {
+// 코드 검색 / 파일 조회는 @stablecoin/ops로 이전.
+// Teamap 호출 시그니처는 유지 (token+org은 자동 주입)
+function ghOpts() {
   const token = getToken();
   if (!token) throw new Error('GitHub 토큰이 설정되지 않았습니다.');
-
-  // 따옴표로 감싸 정확한 구문 검색 + 조직 한정
-  const q = `"${query.replace(/"/g, '')}" org:${ORG}`;
-  const url = `https://api.github.com/search/code?q=${encodeURIComponent(q)}&per_page=${limit}`;
-
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3.text-match+json',
-    },
-  });
-  if (!res.ok) {
-    if (res.status === 422) throw new Error('GitHub 검색 쿼리가 유효하지 않습니다.');
-    if (res.status === 403) throw new Error('GitHub 검색 한도 초과 (분당 30회).');
-    throw new Error(`GitHub 검색 실패 (HTTP ${res.status})`);
-  }
-  const data = await res.json() as { items: RawCodeSearchItem[] };
-
-  return (data.items ?? []).map((it) => ({
-    name: it.name,
-    path: it.path,
-    repo: it.repository.name,
-    url: it.html_url,
-    fragments: (it.text_matches ?? []).map((m) => m.fragment),
-    score: it.score,
-  }));
+  return { token, org: ORG };
 }
 
-/** 파일 콘텐츠 가져오기 (특정 라인 범위 추출용) */
+export async function searchCode(query: string, limit = 10): Promise<CodeSearchHit[]> {
+  return opsGithub.searchCode(ghOpts(), query, limit);
+}
+
 export async function fetchFileContent(repo: string, path: string): Promise<string> {
-  const data = await ghFetch<{ content: string; encoding: string }>(
-    `/repos/${ORG}/${repo}/contents/${encodeURIComponent(path)}`
-  );
-  if (data.encoding === 'base64') {
-    return atob(data.content.replace(/\n/g, ''));
-  }
-  return data.content;
+  return opsGithub.fetchFileContent(ghOpts(), repo, path);
+}
+
+/** 파일 내용에서 키워드 매치 위치 ± N줄 컨텍스트 추출.
+ *  AI에게 라인 번호와 함께 코드를 보여주기 위함 — "> 1234: code" 형식.
+ *  한 파일당 최대 3개 매치까지 반환 (서로 겹치지 않는 범위).
+ */
+export async function fetchFileContentWithMatch(
+  repo: string,
+  path: string,
+  keywords: string[],
+  contextLines = 15,
+): Promise<{ lineNumber: number; snippet: string }[]> {
+  return opsGithub.fetchFileContentWithMatch(ghOpts(), repo, path, keywords, contextLines);
 }
 
 export async function fetchReposWithPermissions(): Promise<RepoWithPermission[]> {
